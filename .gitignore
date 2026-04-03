@@ -1,0 +1,23 @@
+# Environment / local config
+.env.local
+
+# Build output
+dist/
+
+# Game assets (not to be tracked)
+assets/models/
+assets/textures/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node / tooling (future-proofing)
+node_modules/
+
+# Python cache (your dev server uses python)
+__pycache__/
+

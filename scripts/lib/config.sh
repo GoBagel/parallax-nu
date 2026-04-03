@@ -1,0 +1,6 @@
+PROJECT_NAME="parallax-nu"
+USER_SCRIPT_TITLE="Parallax-Nu – 3D VCR & Visual Enhancements"
+PROJECT_NAMESPACE="gobagel/parallax-nu"
+PROJECT_DESCRIPTION="Cinematic VCR and visual enhancement tools for Planets.nu"
+PROJECT_AUTHOR="Planets.nu: bagelman, GitHub: gobagel"
+PROJECT_HOMEPAGE_URL="https://github.com/GoBagel/parallax-nu"
