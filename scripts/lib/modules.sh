@@ -15,6 +15,7 @@ $project_root/src/ui/main-menu-branding.js
 $project_root/src/features/text-vcr.js
 $project_root/src/features/render-3d.js
 $project_root/src/features/menu.js
+$project_root/src/generated/build-info.js
 $project_root/src/main.js
 EOF
 }

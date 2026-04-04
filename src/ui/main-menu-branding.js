@@ -1,8 +1,11 @@
 (function () {
-  const ROOT_ID = "parallax-nu-main-menu";
   const TOPBAR_LOGO_ID = "parallax-nu-topbar-logo";
   const STYLE_ID = "parallax-nu-main-menu-style";
   const MODAL_ID = "parallax-nu-config-modal";
+
+  function log(...args) {
+    log("[Parallax Nu]", ...args);
+  }
 
   function ensureStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -51,55 +54,10 @@
         margin-right: 6px;
       }
 
-      #${ROOT_ID} {
-        margin: 16px 0;
-        padding: 14px 16px;
-        border-radius: 12px;
-        border: 1px solid rgba(120, 180, 255, 0.22);
-        background: linear-gradient(180deg, rgba(8, 12, 20, 0.96), rgba(12, 18, 30, 0.96));
-        color: #dceeff;
-        max-width: 760px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-      }
-
-      #${ROOT_ID} .pn-logo-wrap {
-        display: flex;
-        justify-content: flex-start;
-        align-items: center;
-        margin-bottom: 10px;
-      }
-
-      #${ROOT_ID} .pn-logo {
-        width: 100%;
-        max-width: 360px;
-        line-height: 0;
-      }
-
-      #${ROOT_ID} .pn-logo svg {
-        display: block;
-        width: 100%;
-        height: auto;
-      }
-
-      #${ROOT_ID} .pn-subtitle {
-        font-size: 13px;
-        line-height: 1.45;
-        color: #a7c4dd;
-        margin-bottom: 12px;
-      }
-
-      #${ROOT_ID} .pn-row {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-top: 10px;
-      }
-
       .parallax-nu-nav-link {
         cursor: pointer;
       }
 
-      #${ROOT_ID} button,
       #${MODAL_ID} button {
         padding: 8px 12px;
         border-radius: 8px;
@@ -109,7 +67,6 @@
         cursor: pointer;
       }
 
-      #${ROOT_ID} button:hover,
       #${MODAL_ID} button:hover {
         background: rgba(52, 94, 148, 0.45);
         border-color: rgba(140, 210, 255, 0.55);
@@ -273,13 +230,6 @@
         transition: opacity 120ms ease, transform 120ms ease;
       }
 
-      #${MODAL_ID} .pn-about-logo {
-        width: 100%;
-        max-width: 320px;
-        margin: 4px 0 14px;
-        line-height: 0;
-      }
-
       #${MODAL_ID} .pn-about-logo svg {
         display: block;
         width: 100%;
@@ -336,6 +286,18 @@
 
       #${MODAL_ID} .pn-about-list li + li {
         margin-top: 6px;
+      }
+
+      #${MODAL_ID} .pn-release-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      #${MODAL_ID} .pn-release-header strong {
+        color: #e7f5ff;
       }
     `;
     document.head.appendChild(style);
@@ -522,20 +484,20 @@
   }
 
   function getVersionInfo() {
+    const buildInfo = window.ParallaxNuBuildInfo || {};
+
     return {
-      pluginVersion:
-        window.__3dvcr?.version ||
-        window.ParallaxNu?.version ||
-        "dev",
-      userscriptName:
-        "Parallax-Nu",
-      buildMode:
+        pluginVersion: buildInfo.version || "dev",
+        buildDate: buildInfo.buildDate || null,
+        releaseNotes: Array.isArray(buildInfo.releaseNotes) ? buildInfo.releaseNotes : [],
+        userscriptName: "Parallax-Nu",
+        buildMode:
         window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
-          ? "development"
-          : "production",
-      planetsHost: window.location.host || "",
-      patchNotesLocation:
-        "Patch notes placeholder - this can later point to a GitHub releases page, changelog file, or in-plugin notes feed."
+            ? "development"
+            : "production",
+        planetsHost: window.location.host || "",
+        patchNotesLocation:
+        "Recent notes are embedded from generated build metadata. Full history should live in CHANGELOG.md."
     };
   }
 
@@ -580,7 +542,41 @@
     }
   }
 
-   function buildModalHtml(config) {
+  function renderReleaseNotes(releaseNotes) {
+    if (!Array.isArray(releaseNotes) || !releaseNotes.length) {
+        return `
+        <div class="pn-about-box">
+            <p class="pn-note" style="margin: 0;">
+            No release notes are available yet. Run the version update script to generate build metadata.
+            </p>
+        </div>
+        `;
+    }
+
+    return releaseNotes.map((entry) => {
+        const versionLabel = escapeHtml(entry.version || "Unknown");
+        const dateLabel = entry.date ? escapeHtml(entry.date) : "Unreleased";
+        const items = Array.isArray(entry.items) ? entry.items : [];
+
+        return `
+        <div class="pn-about-box">
+            <div class="pn-release-header">
+            <strong>${versionLabel}</strong>
+            <span class="pn-note">${dateLabel}</span>
+            </div>
+            ${
+            items.length
+                ? `<ul class="pn-about-list">
+                    ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+                </ul>`
+                : `<p class="pn-note" style="margin: 8px 0 0;">No summarized items for this release.</p>`
+            }
+        </div>
+        `;
+    }).join("");
+}
+
+  function buildModalHtml(config) {
     const versionInfo = getVersionInfo();
 
     return `
@@ -716,32 +712,27 @@
             <section class="pn-section">
               <h3>About Parallax Nu</h3>
 
-                <div class="pn-about-header">
+              <div class="pn-about-header">
                 <div class="pn-about-grid">
-                    <b>Plugin</b><span>${escapeHtml(versionInfo.userscriptName)}</span>
-                    <b>Version</b><span>${escapeHtml(versionInfo.pluginVersion)}</span>
-                    <b>Mode</b><span>${escapeHtml(versionInfo.buildMode)}</span>
-                    <b>Host</b><span>${escapeHtml(versionInfo.planetsHost)}</span>
+                  <b>Plugin</b><span>${escapeHtml(versionInfo.userscriptName)}</span>
+                  <b>Version</b><span>${escapeHtml(versionInfo.pluginVersion)}</span>
+                  <b>Mode</b><span>${escapeHtml(versionInfo.buildMode)}</span>
+                  <b>Host</b><span>${escapeHtml(versionInfo.planetsHost)}</span>
+                  <b>Build Date</b><span>${escapeHtml(versionInfo.buildDate || "Not available")}</span>
                 </div>
 
                 <div class="pn-about-logo">
-                    ${createLogoSvg()}
+                  ${createLogoSvg()}
                 </div>
-                </div>
+              </div>
             </section>
 
             <section class="pn-section">
-              <h3>Patch Notes</h3>
-              <div class="pn-about-box">
-                <p class="pn-note" style="margin: 0;">
-                  ${escapeHtml(versionInfo.patchNotesLocation)}
-                </p>
-                <ul class="pn-about-list">
-                  <li>Reserve this area for recent changes, fixes, and feature additions.</li>
-                  <li>Later this can be populated from a changelog file, GitHub releases, or a remote manifest.</li>
-                  <li>For now, this tab is the natural home for dev build notes and compatibility notices.</li>
-                </ul>
-              </div>
+              <h3>Recent Patch Notes</h3>
+              <p class="pn-note">
+                ${escapeHtml(versionInfo.patchNotesLocation)}
+              </p>
+              ${renderReleaseNotes(versionInfo.releaseNotes)}
             </section>
 
             <section class="pn-section">
@@ -796,7 +787,7 @@
         const nextConfig = collectFormConfig(modal);
         saveConfig(nextConfig);
         closeConfigModal();
-        console.log("[Parallax Nu] Config saved", nextConfig);
+        log("[Parallax Nu] Config saved", nextConfig);
       });
     }
 
@@ -816,15 +807,6 @@
   function closeConfigModal() {
     const modal = document.getElementById(MODAL_ID);
     if (modal) modal.classList.remove("is-open");
-  }
-
-  function findMainMenuMount() {
-    return (
-      document.querySelector(".main-content") ||
-      document.querySelector(".content") ||
-      document.querySelector("main") ||
-      document.body
-    );
   }
 
   function injectTopbarLogo() {
@@ -851,7 +833,7 @@
         openConfigModal();
     });
 
-    console.log("[Parallax Nu] topbar logo injected");
+    log("[Parallax Nu] topbar logo injected");
 }
 
   function injectAccountNavLink() {
@@ -888,41 +870,7 @@
 
     targetNav.insertBefore(parallaxLink, accountLink);
 
-    console.log("[Parallax Nu] account nav link injected");
-  }
-
-  function injectPanel() {
-    if (document.getElementById(ROOT_ID)) return;
-
-    const mount = findMainMenuMount();
-    if (!mount) {
-      console.log("[Parallax Nu] no mount found");
-      return;
-    }
-
-    const panel = document.createElement("section");
-    panel.id = ROOT_ID;
-    panel.innerHTML = `
-      <div class="pn-logo-wrap">
-        <div class="pn-logo">${createLogoSvg()}</div>
-      </div>
-      <div class="pn-subtitle">
-        Cinematic overlays, configurable audio, motif packs, social links, and future export tooling for Parallax Nu.
-      </div>
-      <div class="pn-row">
-        <button type="button" data-pn-open-config>Configure Parallax Nu</button>
-        <button type="button" data-pn-open-audio>Audio Settings</button>
-        <button type="button" data-pn-open-social>Social Settings</button>
-      </div>
-    `;
-
-    mount.prepend(panel);
-
-    panel.querySelector("[data-pn-open-config]")?.addEventListener("click", openConfigModal);
-    panel.querySelector("[data-pn-open-audio]")?.addEventListener("click", openConfigModal);
-    panel.querySelector("[data-pn-open-social]")?.addEventListener("click", openConfigModal);
-
-    console.log("[Parallax Nu] main menu panel injected", mount);
+    log("[Parallax Nu] account nav link injected");
   }
 
   function initParallaxNuMainMenuModule() {
@@ -942,12 +890,12 @@
       subtree: true
     });
 
-    console.log("[Parallax Nu] main menu module initialized");
+    log("[Parallax Nu] main menu module initialized");
   }
 
   window.ParallaxNu = window.ParallaxNu || {};
   window.ParallaxNu.openConfigModal = openConfigModal;
   window.ParallaxNu.initParallaxNuMainMenuModule = initParallaxNuMainMenuModule;
 
-  console.log("[Parallax Nu] main-menu-branding loaded");
+  log("[Parallax Nu] main-menu-branding loaded");
 })();
