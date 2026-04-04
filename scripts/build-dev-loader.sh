@@ -7,8 +7,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/config.sh"
 # shellcheck source=./lib/lib.sh
 source "$SCRIPT_DIR/lib/lib.sh"
-# shellcheck source=./lib/modules.sh
-source "$SCRIPT_DIR/lib/modules.sh"
 
 PROJECT_ROOT="$(get_project_root)"
 load_local_env "$PROJECT_ROOT"
@@ -21,8 +19,7 @@ VERSION="${VERSION:-0.8.0-dev.${STAMP}}"
 
 mkdir -p "$DIST_DIR"
 
-{
-  cat <<EOF
+cat > "$OUT_FILE" <<EOF
 // ==UserScript==
 // @name         ${USER_SCRIPT_TITLE} (Dev Loader)
 // @namespace    ${PROJECT_NAMESPACE}
@@ -35,14 +32,9 @@ mkdir -p "$DIST_DIR"
 // @match        http://planets.nu/*
 // @match        http://play.planets.nu/*
 // @grant        none
+// @require      http://127.0.0.1:${PORT}/dev-loader.js?v=${STAMP}
+// ==/UserScript==
 EOF
 
-  while IFS= read -r file; do
-    rel_path="${file#$PROJECT_ROOT/}"
-    echo "// @require      http://127.0.0.1:${PORT}/${rel_path}?v=${STAMP}"
-  done < <(get_userscript_modules "$PROJECT_ROOT")
-
-  echo "// ==/UserScript=="
-} > "$OUT_FILE"
-
-echo "Built dev loader: $OUT_FILE"
+echo "Built dev loader:"
+echo "  $OUT_FILE"
