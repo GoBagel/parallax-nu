@@ -4,9 +4,6 @@
   const root = window.ParallaxNu = window.ParallaxNu || {};
   const api = root.Cinematics = root.Cinematics || {};
 
-  // Temporary compatibility bridge
-  window.__3dvcr = api;
-
   function getPanelBody() {
     return (
       document.getElementById('nu-cinematics-body') ||

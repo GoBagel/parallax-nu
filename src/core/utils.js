@@ -4,9 +4,6 @@
   const root = window.ParallaxNu = window.ParallaxNu || {};
   const api = root.Cinematics = root.Cinematics || {};
 
-  // Temporary compatibility bridge for older modules still using __3dvcr
-  window.__3dvcr = api;
-
   const originalConsoleLog =
     typeof console !== 'undefined' && typeof console.log === 'function'
       ? console.log.bind(console)

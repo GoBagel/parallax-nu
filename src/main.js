@@ -4,9 +4,6 @@
   const root = window.ParallaxNu = window.ParallaxNu || {};
   const api = root.Cinematics = root.Cinematics || {};
 
-  // TEMP compatibility bridge while other modules are migrated
-  window.__3dvcr = api;
-
   const buildInfo = window.ParallaxNuBuildInfo || {};
   const version = buildInfo.version || 'dev';
 

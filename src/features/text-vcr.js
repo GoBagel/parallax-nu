@@ -1,7 +1,8 @@
 (function () {
   'use strict';
 
-  const api = window.__3dvcr;
+  const root = window.ParallaxNu = window.ParallaxNu || {};
+  const api = root.Cinematics = root.Cinematics || {};
   const pad = api.pad;
 
   api.showTextVcrModal = function showTextVcrModal(title, text) {
