@@ -1,11 +1,42 @@
 (function () {
   'use strict';
 
-  const api = window.__3dvcr;
+  const root = window.ParallaxNu = window.ParallaxNu || {};
+  const api = root.Cinematics = root.Cinematics || {};
+
+  // Temporary compatibility bridge for older modules still using __3dvcr
+  window.__3dvcr = api;
+
+  const originalConsoleLog =
+    typeof console !== 'undefined' && typeof console.log === 'function'
+      ? console.log.bind(console)
+      : () => {};
+
+  const originalConsoleWarn =
+    typeof console !== 'undefined' && typeof console.warn === 'function'
+      ? console.warn.bind(console)
+      : originalConsoleLog;
+
+  const originalConsoleError =
+    typeof console !== 'undefined' && typeof console.error === 'function'
+      ? console.error.bind(console)
+      : originalConsoleLog;
 
   api.log = (...a) => {
     try {
-      console.log('[3DVCR]', ...a);
+      originalConsoleLog('[Cinematics]', ...a);
+    } catch {}
+  };
+
+  api.warn = (...a) => {
+    try {
+      originalConsoleWarn('[Cinematics]', ...a);
+    } catch {}
+  };
+
+  api.error = (...a) => {
+    try {
+      originalConsoleError('[Cinematics]', ...a);
     } catch {}
   };
 

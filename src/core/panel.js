@@ -1,9 +1,10 @@
 (function () {
   'use strict';
 
-  const api = window.__3dvcr;
+  const root = window.ParallaxNu = window.ParallaxNu || {};
+  const api = root.Cinematics = root.Cinematics || {};
 
-  const POS_KEY = 'nu_3dvcr_pos_v1';
+  const POS_KEY = 'nu_cinematics_pos_v1';
 
   function loadPanelPos() {
     try {
@@ -20,11 +21,11 @@
   }
 
   api.ensurePanel = function ensurePanel() {
-    let panel = document.getElementById('nu-3dvcr-panel');
+    let panel = document.getElementById('nu-cinematics-panel');
     if (panel) return panel;
 
     panel = document.createElement('div');
-    panel.id = 'nu-3dvcr-panel';
+    panel.id = 'nu-cinematics-panel';
 
     const saved = loadPanelPos();
     panel.style.cssText = `
@@ -86,7 +87,7 @@
     });
 
     const title = document.createElement('div');
-    title.textContent = '3D VCR – Current Turn';
+    title.textContent = 'Cinematics – Current Turn';
     title.style.cssText = 'font-weight:700;';
 
     const close = document.createElement('button');
@@ -105,7 +106,7 @@
     header.appendChild(close);
 
     const body = document.createElement('div');
-    body.id = 'nu-3dvcr-body';
+    body.id = 'nu-cinematics-body';
     body.style.cssText = 'padding:10px 12px;';
 
     panel.appendChild(header);

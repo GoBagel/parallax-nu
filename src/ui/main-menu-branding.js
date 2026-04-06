@@ -1,10 +1,22 @@
 (function () {
+  'use strict';
+
   const TOPBAR_LOGO_ID = "parallax-nu-topbar-logo";
   const STYLE_ID = "parallax-nu-main-menu-style";
   const MODAL_ID = "parallax-nu-config-modal";
 
+  let isInitialized = false;
+  let menuObserver = null;
+
+  const originalConsoleLog =
+    typeof console !== "undefined" && typeof console.log === "function"
+      ? console.log.bind(console)
+      : () => {};
+
   function log(...args) {
-    log("[Parallax Nu]", ...args);
+    try {
+      originalConsoleLog("[Parallax Nu]", ...args);
+    } catch {}
   }
 
   function ensureStyles() {
@@ -487,16 +499,16 @@
     const buildInfo = window.ParallaxNuBuildInfo || {};
 
     return {
-        pluginVersion: buildInfo.version || "dev",
-        buildDate: buildInfo.buildDate || null,
-        releaseNotes: Array.isArray(buildInfo.releaseNotes) ? buildInfo.releaseNotes : [],
-        userscriptName: "Parallax-Nu",
-        buildMode:
+      pluginVersion: buildInfo.version || "dev",
+      buildDate: buildInfo.buildDate || null,
+      releaseNotes: Array.isArray(buildInfo.releaseNotes) ? buildInfo.releaseNotes : [],
+      userscriptName: "Parallax-Nu",
+      buildMode:
         window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
-            ? "development"
-            : "production",
-        planetsHost: window.location.host || "",
-        patchNotesLocation:
+          ? "development"
+          : "production",
+      planetsHost: window.location.host || "",
+      patchNotesLocation:
         "Recent notes are embedded from generated build metadata. Full history should live in CHANGELOG.md."
     };
   }
@@ -544,37 +556,37 @@
 
   function renderReleaseNotes(releaseNotes) {
     if (!Array.isArray(releaseNotes) || !releaseNotes.length) {
-        return `
+      return `
         <div class="pn-about-box">
-            <p class="pn-note" style="margin: 0;">
+          <p class="pn-note" style="margin: 0;">
             No release notes are available yet. Run the version update script to generate build metadata.
-            </p>
+          </p>
         </div>
-        `;
+      `;
     }
 
     return releaseNotes.map((entry) => {
-        const versionLabel = escapeHtml(entry.version || "Unknown");
-        const dateLabel = entry.date ? escapeHtml(entry.date) : "Unreleased";
-        const items = Array.isArray(entry.items) ? entry.items : [];
+      const versionLabel = escapeHtml(entry.version || "Unknown");
+      const dateLabel = entry.date ? escapeHtml(entry.date) : "Unreleased";
+      const items = Array.isArray(entry.items) ? entry.items : [];
 
-        return `
+      return `
         <div class="pn-about-box">
-            <div class="pn-release-header">
+          <div class="pn-release-header">
             <strong>${versionLabel}</strong>
             <span class="pn-note">${dateLabel}</span>
-            </div>
-            ${
+          </div>
+          ${
             items.length
-                ? `<ul class="pn-about-list">
-                    ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+              ? `<ul class="pn-about-list">
+                  ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
                 </ul>`
-                : `<p class="pn-note" style="margin: 8px 0 0;">No summarized items for this release.</p>`
-            }
+              : `<p class="pn-note" style="margin: 8px 0 0;">No summarized items for this release.</p>`
+          }
         </div>
-        `;
+      `;
     }).join("");
-}
+  }
 
   function buildModalHtml(config) {
     const versionInfo = getVersionInfo();
@@ -787,7 +799,7 @@
         const nextConfig = collectFormConfig(modal);
         saveConfig(nextConfig);
         closeConfigModal();
-        log("[Parallax Nu] Config saved", nextConfig);
+        log("Config saved", nextConfig);
       });
     }
 
@@ -820,21 +832,21 @@
     const wrapper = document.createElement("div");
     wrapper.id = TOPBAR_LOGO_ID;
     wrapper.innerHTML = `
-        <a href="javascript:void(0)" class="pn-topbar-logo-link" title="Open Parallax Nu settings">
+      <a href="javascript:void(0)" class="pn-topbar-logo-link" title="Open Parallax Nu settings">
         <div class="pn-topbar-logo">${createTopbarLogoSvg()}</div>
-        </a>
+      </a>
     `;
 
     nativeLogo.insertAdjacentElement("afterend", wrapper);
     topbar.classList.add("parallax-nu-topbar-ready");
 
     wrapper.querySelector(".pn-topbar-logo-link")?.addEventListener("click", function (event) {
-        event.preventDefault();
-        openConfigModal();
+      event.preventDefault();
+      openConfigModal();
     });
 
-    log("[Parallax Nu] topbar logo injected");
-}
+    log("topbar logo injected");
+  }
 
   function injectAccountNavLink() {
     const navs = Array.from(document.querySelectorAll("section > nav"));
@@ -870,7 +882,7 @@
 
     targetNav.insertBefore(parallaxLink, accountLink);
 
-    log("[Parallax Nu] account nav link injected");
+    log("account nav link injected");
   }
 
   function initParallaxNuMainMenuModule() {
@@ -878,24 +890,27 @@
     injectTopbarLogo();
     injectAccountNavLink();
 
-    const observer = new MutationObserver(function () {
+    if (isInitialized) return;
+    isInitialized = true;
+
+    menuObserver = new MutationObserver(function () {
       if (!document.getElementById(TOPBAR_LOGO_ID)) {
         injectTopbarLogo();
       }
       injectAccountNavLink();
     });
 
-    observer.observe(document.body, {
+    menuObserver.observe(document.body, {
       childList: true,
       subtree: true
     });
 
-    log("[Parallax Nu] main menu module initialized");
+    log("main menu module initialized");
   }
 
   window.ParallaxNu = window.ParallaxNu || {};
   window.ParallaxNu.openConfigModal = openConfigModal;
   window.ParallaxNu.initParallaxNuMainMenuModule = initParallaxNuMainMenuModule;
 
-  log("[Parallax Nu] main-menu-branding loaded");
+  log("main-menu-branding loaded");
 })();
