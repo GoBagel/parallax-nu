@@ -1058,4 +1058,28 @@
       })
       .sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0));
   };
+  api.debugPreviousTurnContextLookup = function debugPreviousTurnContextLookup(location, options = {}) {
+    const vgap = window.vgap;
+
+    const currentTurn = firstFiniteNumber(
+      options.turnNumber,
+      vgap?.nowTurn,
+      vgap?.settings?.turn,
+      vgap?.game?.turn
+    );
+
+    const previousTurn = currentTurn != null ? currentTurn - 1 : null;
+    const cached = previousTurn != null ? getCachedTurnRst(previousTurn) : null;
+
+    return {
+      currentTurn,
+      previousTurn,
+      cachedTurnSummaries: api.getCachedTurnSummaries(),
+      foundPreviousTurnRst: !!cached,
+      previousTurnShipCount: Array.isArray(cached?.ships) ? cached.ships.length : 0,
+      previousTurnPlanetCount: Array.isArray(cached?.planets) ? cached.planets.length : 0,
+      previousTurnStarbaseCount: Array.isArray(cached?.starbases) ? cached.starbases.length : 0,
+      location,
+    };
+  };
 })();
