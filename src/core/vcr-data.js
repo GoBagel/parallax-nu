@@ -752,4 +752,310 @@
 
     return result;
   };
+  function getCachedTurnRst(turnNumber) {
+    const vgap = window.vgap;
+    const turn = firstFiniteNumber(turnNumber);
+    if (turn == null) return null;
+
+    const rstStore = vgap?.rst;
+    if (!rstStore) return null;
+
+    const directGameId = firstFiniteNumber(vgap?.gameId, vgap?.gameid, vgap?.game?.id, vgap?.settings?.id);
+    const directPlayerId = firstFiniteNumber(vgap?.loadPlayerId, vgap?.player?.id);
+
+    // First try the exact key we expect.
+    if (directGameId != null && directPlayerId != null) {
+      const exactKey = `${directGameId}-${directPlayerId}-${turn}`;
+      const exactEntry = rstStore?.[exactKey] || null;
+      if (exactEntry?.rst) return exactEntry.rst;
+    }
+
+    // Then scan all keys for anything ending in the requested turn.
+    const keys = Object.keys(rstStore);
+    for (const key of keys) {
+      const entry = rstStore[key];
+      if (!entry?.rst) continue;
+
+      const m = /^(\d+)-(\d+)-(\d+)$/.exec(key);
+      if (!m) continue;
+
+      const keyTurn = Number(m[3]);
+      if (keyTurn === turn) {
+        return entry.rst;
+      }
+    }
+
+    return null;
+  }
+  api.buildLocationContextFromSources = function buildLocationContextFromSources(location, sources = {}) {
+    const x = firstFiniteNumber(location?.x);
+    const y = firstFiniteNumber(location?.y);
+
+    const planets = asArray(sources.planets);
+    const ships = asArray(sources.ships);
+    const starbases = asArray(sources.starbases);
+
+    const context = {
+      x,
+      y,
+      planet: null,
+      starbasePresent: false,
+      shipsPresent: [],
+      shipIdsPresent: [],
+      dataCompleteness: sources.dataCompleteness || 'full',
+    };
+
+    if (x == null || y == null) {
+      context.dataCompleteness = sources.dataCompleteness || 'none';
+      return context;
+    }
+
+    let matchedPlanet = null;
+
+    if (location?.planetId != null) {
+      const pid = firstFiniteNumber(location.planetId);
+      matchedPlanet =
+        planets.find((p) => firstFiniteNumber(p?.id, p?.planetid) === pid) ||
+        null;
+    }
+
+    if (!matchedPlanet) {
+      matchedPlanet =
+        planets.find((p) => firstFiniteNumber(p?.x) === x && firstFiniteNumber(p?.y) === y) ||
+        null;
+    }
+
+    if (matchedPlanet) {
+      const ownerId = firstFiniteNumber(matchedPlanet.ownerid, matchedPlanet.owner);
+      const planetId = firstFiniteNumber(matchedPlanet.id, matchedPlanet.planetid);
+
+      const matchedStarbase =
+        starbases.find((sb) => {
+          return firstFiniteNumber(sb?.planetid, sb?.planetId) === planetId;
+        }) || null;
+
+      const hasStarbase = !!(
+        matchedStarbase ||
+        matchedPlanet.hasstarbase ||
+        matchedPlanet.starbaseid != null ||
+        matchedPlanet.baseid != null
+      );
+
+      context.planet = {
+        id: planetId,
+        name: String(matchedPlanet.name || '').trim(),
+        x: firstFiniteNumber(matchedPlanet.x),
+        y: firstFiniteNumber(matchedPlanet.y),
+        ownerId,
+        ownerName: api.getPlayerNameById ? api.getPlayerNameById(ownerId) : '',
+        temp: firstFiniteNumber(
+          matchedPlanet.temp,
+          matchedPlanet.temperature,
+          matchedPlanet.climate
+        ),
+        clans: firstFiniteNumber(
+          matchedPlanet.clans,
+          matchedPlanet.colonistclans,
+          matchedPlanet.colonists
+        ),
+        nativeClans: firstFiniteNumber(
+          matchedPlanet.nativeclans,
+          matchedPlanet.natives,
+          matchedPlanet.nativepopulation
+        ),
+        nativeType: firstFiniteNumber(
+          matchedPlanet.nativetype,
+          matchedPlanet.nativeType
+        ),
+        hasStarbase,
+        starbase: {
+          exists: hasStarbase,
+          fighters: firstFiniteNumber(
+            matchedStarbase?.fighters,
+            matchedPlanet.fighters,
+            matchedPlanet.basefighters,
+            matchedPlanet.starbasefighters
+          ),
+          defensePosts: firstFiniteNumber(
+            matchedStarbase?.defense,
+            matchedPlanet.defense,
+            matchedPlanet.defenseposts,
+            matchedPlanet.defenses
+          ),
+          beamTech: firstFiniteNumber(
+            matchedStarbase?.beamtech,
+            matchedPlanet.beamtech,
+            matchedPlanet.starbasebeamtech,
+            matchedPlanet.basebeamtech
+          ),
+          torpTech: firstFiniteNumber(
+            matchedStarbase?.torptech,
+            matchedPlanet.torptech,
+            matchedPlanet.starbasetorptech,
+            matchedPlanet.basetorptech
+          ),
+          fighterTech: firstFiniteNumber(
+            matchedStarbase?.fightertech,
+            matchedPlanet.fightertech,
+            matchedPlanet.starbasefightertech,
+            matchedPlanet.basefightertech
+          ),
+        },
+        raw: matchedPlanet,
+      };
+
+      context.starbasePresent = hasStarbase;
+    }
+
+    context.shipsPresent = ships
+      .filter((s) => firstFiniteNumber(s?.x) === x && firstFiniteNumber(s?.y) === y)
+      .map((ship) => {
+        const ownerId = firstFiniteNumber(ship.ownerid, ship.owner);
+        const hullId = firstFiniteNumber(ship.hullid);
+
+        return {
+          id: firstFiniteNumber(ship.id, ship.shipid),
+          entityId: `ship:${firstFiniteNumber(ship.id, ship.shipid)}`,
+          name: String(ship.name || ship.shipname || '').trim(),
+          x: firstFiniteNumber(ship.x),
+          y: firstFiniteNumber(ship.y),
+          ownerId,
+          ownerName: api.getPlayerNameById ? api.getPlayerNameById(ownerId) : '',
+          raceId: firstFiniteNumber(ship.raceid, ownerId),
+          hullId,
+          hullName: api.hullNameFromVcrHullId ? api.hullNameFromVcrHullId(hullId) : '',
+          mass: firstFiniteNumber(ship.mass),
+          beamCount: firstFiniteNumber(ship.beams, ship.beamcount),
+          torpCount: firstFiniteNumber(ship.torps, ship.launchers),
+          fighterCount: firstFiniteNumber(ship.fighters, ship.bays),
+          xp: firstFiniteNumber(ship.xp, ship.experience) ?? 0,
+          raw: ship,
+        };
+      });
+
+    context.shipIdsPresent = context.shipsPresent.map((s) => s.entityId);
+
+    return context;
+  };
+  api.getLocationContextNow = function getLocationContextNow(location) {
+    const vgap = window.vgap;
+
+    return api.buildLocationContextFromSources(location, {
+      planets: vgap?.planets,
+      ships: vgap?.ships,
+      starbases: vgap?.starbases,
+      dataCompleteness: 'full',
+    });
+  };
+  api.getLocationContextPreviousTurn = function getLocationContextPreviousTurn(location, options = {}) {
+    const vgap = window.vgap;
+
+    const currentTurn = firstFiniteNumber(
+      options.turnNumber,
+      vgap?.nowTurn,
+      vgap?.settings?.turn,
+      vgap?.game?.turn
+    );
+
+    const previousTurn = currentTurn != null ? currentTurn - 1 : null;
+    if (previousTurn == null || previousTurn < 1) {
+      return {
+        x: firstFiniteNumber(location?.x),
+        y: firstFiniteNumber(location?.y),
+        planet: null,
+        starbasePresent: false,
+        shipsPresent: [],
+        shipIdsPresent: [],
+        dataCompleteness: 'none',
+      };
+    }
+
+    const rst = getCachedTurnRst(previousTurn);
+    if (!rst) {
+      return {
+        x: firstFiniteNumber(location?.x),
+        y: firstFiniteNumber(location?.y),
+        planet: null,
+        starbasePresent: false,
+        shipsPresent: [],
+        shipIdsPresent: [],
+        dataCompleteness: 'none',
+      };
+    }
+
+    return api.buildLocationContextFromSources(location, {
+      planets: rst?.planets,
+      ships: rst?.ships,
+      starbases: rst?.starbases,
+      dataCompleteness: 'partial',
+    });
+  };
+  api.getLocationContextDelta = function getLocationContextDelta(previousCtx, currentCtx) {
+    const prevShipIds = new Set(asArray(previousCtx?.shipIdsPresent));
+    const currShipIds = new Set(asArray(currentCtx?.shipIdsPresent));
+
+    const shipsStayed = [];
+    const shipsDeparted = [];
+    const shipsArrived = [];
+
+    for (const id of prevShipIds) {
+      if (currShipIds.has(id)) shipsStayed.push(id);
+      else shipsDeparted.push(id);
+    }
+
+    for (const id of currShipIds) {
+      if (!prevShipIds.has(id)) shipsArrived.push(id);
+    }
+
+    const previousStarbasePresent = !!previousCtx?.starbasePresent;
+    const currentStarbasePresent = !!currentCtx?.starbasePresent;
+
+    return {
+      x: firstFiniteNumber(previousCtx?.x, currentCtx?.x),
+      y: firstFiniteNumber(previousCtx?.y, currentCtx?.y),
+
+      shipsStayed,
+      shipsDeparted,
+      shipsArrived,
+
+      previousShipIds: Array.from(prevShipIds),
+      currentShipIds: Array.from(currShipIds),
+
+      previousStarbasePresent,
+      currentStarbasePresent,
+      starbaseRemoved: previousStarbasePresent && !currentStarbasePresent,
+      starbaseAppeared: !previousStarbasePresent && currentStarbasePresent,
+
+      previousPlanetOwnerId: previousCtx?.planet?.ownerId ?? null,
+      currentPlanetOwnerId: currentCtx?.planet?.ownerId ?? null,
+      planetOwnerChanged:
+        (previousCtx?.planet?.ownerId ?? null) !== (currentCtx?.planet?.ownerId ?? null),
+
+      previousDataCompleteness: previousCtx?.dataCompleteness || 'none',
+      currentDataCompleteness: currentCtx?.dataCompleteness || 'none',
+    };
+  };
+  api.getCachedTurnSummaries = function getCachedTurnSummaries() {
+    const vgap = window.vgap;
+    const rstStore = vgap?.rst;
+    if (!rstStore) return [];
+
+    return Object.keys(rstStore)
+      .map((key) => {
+        const entry = rstStore[key];
+        const m = /^(\d+)-(\d+)-(\d+)$/.exec(key);
+
+        return {
+          key,
+          gameId: m ? Number(m[1]) : null,
+          playerId: m ? Number(m[2]) : null,
+          turn: m ? Number(m[3]) : null,
+          hasRst: !!entry?.rst,
+          shipCount: Array.isArray(entry?.rst?.ships) ? entry.rst.ships.length : 0,
+          planetCount: Array.isArray(entry?.rst?.planets) ? entry.rst.planets.length : 0,
+          starbaseCount: Array.isArray(entry?.rst?.starbases) ? entry.rst.starbases.length : 0,
+        };
+      })
+      .sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0));
+  };
 })();
