@@ -830,9 +830,8 @@
       const planetId = firstFiniteNumber(matchedPlanet.id, matchedPlanet.planetid);
 
       const matchedStarbase =
-        starbases.find((sb) => {
-          return firstFiniteNumber(sb?.planetid, sb?.planetId) === planetId;
-        }) || null;
+        starbases.find((sb) => firstFiniteNumber(sb?.planetid, sb?.planetId) === planetId) ||
+        null;
 
       const hasStarbase = !!(
         matchedStarbase ||
@@ -947,47 +946,24 @@
       dataCompleteness: 'full',
     });
   };
-  api.getLocationContextPreviousTurn = function getLocationContextPreviousTurn(location, options = {}) {
-    const vgap = window.vgap;
-
-    const currentTurn = firstFiniteNumber(
-      options.turnNumber,
-      vgap?.nowTurn,
-      vgap?.settings?.turn,
-      vgap?.game?.turn
-    );
-
+  api.getLocationContextPreviousTurn = async function getLocationContextPreviousTurn(location, options = {}) {
+    const currentTurn = firstFiniteNumber(options.turnNumber, getCurrentTurnNumber());
     const previousTurn = currentTurn != null ? currentTurn - 1 : null;
+
     if (previousTurn == null || previousTurn < 1) {
-      return {
-        x: firstFiniteNumber(location?.x),
-        y: firstFiniteNumber(location?.y),
-        planet: null,
-        starbasePresent: false,
-        shipsPresent: [],
-        shipIdsPresent: [],
-        dataCompleteness: 'none',
-      };
+      return makeEmptyLocationContext(location, 'none');
     }
 
-    const rst = getCachedTurnRst(previousTurn);
-    if (!rst) {
-      return {
-        x: firstFiniteNumber(location?.x),
-        y: firstFiniteNumber(location?.y),
-        planet: null,
-        starbasePresent: false,
-        shipsPresent: [],
-        shipIdsPresent: [],
-        dataCompleteness: 'none',
-      };
+    const sources = await api.fetchTurnSources(previousTurn, options);
+    if (!sources) {
+      return makeEmptyLocationContext(location, 'none');
     }
 
     return api.buildLocationContextFromSources(location, {
-      planets: rst?.planets,
-      ships: rst?.ships,
-      starbases: rst?.starbases,
-      dataCompleteness: 'partial',
+      planets: sources.planets,
+      ships: sources.ships,
+      starbases: sources.starbases,
+      dataCompleteness: sources.dataCompleteness || 'partial',
     });
   };
   api.getLocationContextDelta = function getLocationContextDelta(previousCtx, currentCtx) {
@@ -1080,6 +1056,192 @@
       previousTurnPlanetCount: Array.isArray(cached?.planets) ? cached.planets.length : 0,
       previousTurnStarbaseCount: Array.isArray(cached?.starbases) ? cached.starbases.length : 0,
       location,
+    };
+  };
+  function deepCloneArray(value) {
+    return JSON.parse(JSON.stringify(asArray(value)));
+  }
+
+  function getCurrentTurnNumber() {
+    const vgap = window.vgap;
+    const nu = window.nu;
+
+    return firstFiniteNumber(
+      vgap?.nowTurn,
+      vgap?.settings?.turn,
+      vgap?.game?.turn,
+      vgap?.turn,
+      vgap?.rst?.settings?.turn,
+      nu?.year
+    );
+  }
+
+  function makeEmptyLocationContext(location, dataCompleteness = 'none') {
+    return {
+      x: firstFiniteNumber(location?.x),
+      y: firstFiniteNumber(location?.y),
+      planet: null,
+      starbasePresent: false,
+      shipsPresent: [],
+      shipIdsPresent: [],
+      dataCompleteness,
+    };
+  }
+
+  function snapshotLiveTurnSources(dataCompleteness = 'full') {
+    const vgap = window.vgap;
+
+    return {
+      turnNumber: getCurrentTurnNumber(),
+      planets: deepCloneArray(vgap?.planets),
+      ships: deepCloneArray(vgap?.ships),
+      starbases: deepCloneArray(vgap?.starbases),
+      dataCompleteness,
+      source: 'live',
+    };
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  api.turnSourceProvider = api.turnSourceProvider || null;
+
+  api.setTurnSourceProvider = function setTurnSourceProvider(provider) {
+    api.turnSourceProvider = typeof provider === 'function' ? provider : null;
+  };
+
+  api.state = api.state || {};
+  api.state.turnSourceCache = api.state.turnSourceCache || {};
+
+  api.fetchTurnSources = async function fetchTurnSources(turnNumber, options = {}) {
+    const turn = firstFiniteNumber(turnNumber);
+    if (turn == null) return null;
+
+    const cache = api.state.turnSourceCache = api.state.turnSourceCache || {};
+
+    if (!options.force && cache[turn]) {
+      return cache[turn];
+    }
+
+    const cachedRst = getCachedTurnRst(turn);
+    if (cachedRst) {
+      const fromCache = {
+        turnNumber: turn,
+        planets: deepCloneArray(cachedRst.planets),
+        ships: deepCloneArray(cachedRst.ships),
+        starbases: deepCloneArray(cachedRst.starbases),
+        dataCompleteness: 'partial',
+        source: 'rst-cache',
+      };
+      cache[turn] = fromCache;
+      return fromCache;
+    }
+
+    if (typeof api.turnSourceProvider === 'function') {
+      const provided = await api.turnSourceProvider(turn, options);
+      if (provided) {
+        const normalized = {
+          turnNumber: turn,
+          planets: deepCloneArray(provided.planets),
+          ships: deepCloneArray(provided.ships),
+          starbases: deepCloneArray(provided.starbases),
+          dataCompleteness: provided.dataCompleteness || 'partial',
+          source: provided.source || 'provider',
+        };
+        cache[turn] = normalized;
+        return normalized;
+      }
+    }
+
+    return null;
+  };
+
+  api.fetchTurnSourcesViaTimeMachine = async function fetchTurnSourcesViaTimeMachine(turnNumber, options = {}) {
+    const vgap = window.vgap;
+    const tm = vgap?.timeMachine;
+    const targetTurn = firstFiniteNumber(turnNumber);
+    const currentTurn = getCurrentTurnNumber();
+
+    if (targetTurn == null || currentTurn == null) return null;
+    if (!tm?.viewPreviousTurn || !tm?.viewCurrentTurn) return null;
+
+    // Conservative first pass: only support fetching the immediately previous turn.
+    if (targetTurn !== currentTurn - 1) return null;
+
+    const settleMs = firstFiniteNumber(options.settleMs) ?? 400;
+
+    try {
+      tm.viewPreviousTurn();
+      await delay(settleMs);
+
+      const snapshot = snapshotLiveTurnSources('partial');
+      snapshot.turnNumber = targetTurn;
+      snapshot.source = 'time-machine';
+
+      tm.viewCurrentTurn();
+      await delay(settleMs);
+
+      return snapshot;
+    } catch (err) {
+      try {
+        tm.viewCurrentTurn();
+      } catch {}
+      return null;
+    }
+  };
+
+  function getCurrentPlayerId() {
+    const vgap = window.vgap;
+    const nu = window.nu;
+
+    return firstFiniteNumber(
+      vgap?.loadPlayerId,
+      vgap?.player?.id,
+      vgap?.rst?.player?.id,
+      nu?.data?.player?.id
+    );
+  }
+
+  function getCurrentGameId() {
+    const vgap = window.vgap;
+    const nu = window.nu;
+
+    return firstFiniteNumber(
+      vgap?.gameId,
+      vgap?.gameid,
+      vgap?.game?.id,
+      vgap?.settings?.id,
+      nu?.data?.game?.id
+    );
+  }
+
+  function getApiKey() {
+    return (
+      window.vgap?.apikey ||
+      window.nu?.apikey ||
+      ''
+    );
+  }
+  api.getLoadTurnRequestParams = function getLoadTurnRequestParams(turnNumber, options = {}) {
+    const turn = firstFiniteNumber(turnNumber);
+    const gameId = firstFiniteNumber(options.gameId, getCurrentGameId());
+    const playerId = firstFiniteNumber(options.playerId, getCurrentPlayerId());
+    const apiKey = String(options.apiKey || getApiKey() || '').trim();
+
+    if (turn == null || gameId == null || playerId == null || !apiKey) {
+      return null;
+    }
+
+    return {
+      url: 'https://api.planets.nu/game/loadturn',
+      method: 'POST',
+      body: {
+        gameid: String(gameId),
+        apikey: apiKey,
+        playerid: String(playerId),
+        turn: String(turn),
+      },
     };
   };
 })();

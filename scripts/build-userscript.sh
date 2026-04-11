@@ -33,7 +33,8 @@ cat > "$TMP_FILE" <<EOF
 // @match        https://play.planets.nu/*
 // @match        http://planets.nu/*
 // @match        http://play.planets.nu/*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      api.planets.nu
 // ==/UserScript==
 
 EOF

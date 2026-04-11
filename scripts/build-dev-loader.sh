@@ -97,7 +97,8 @@ cat > "$OUT_FILE" <<EOF
 // @match        https://play.planets.nu/*
 // @match        http://planets.nu/*
 // @match        http://play.planets.nu/*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      api.planets.nu
 // @require      http://127.0.0.1:${PORT}/dev-loader.js?v=${STAMP}
 // ==/UserScript==
 EOF
