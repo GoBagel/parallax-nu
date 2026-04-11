@@ -89,6 +89,10 @@
       combats: [],
       beats: [],
       phases: [],
+  
+      locationContextPreviousTurn: null,
+      locationContextNow: null,
+      locationContextDelta: null,
 
       summary: {
         headline: '',
