@@ -30,3 +30,11 @@ $project_root/src/generated/build-info.js
 $project_root/src/main.js
 EOF
 }
+
+get_userscript_privileged_modules() {
+  local project_root="$1"
+
+  cat <<EOF
+$project_root/src/privileged/turn-source-provider.js
+EOF
+}

@@ -72,7 +72,7 @@ EOF
       console.log('[Parallax Nu] loading', mod);
       await loadScript(mod);
     }
-    console.log('[Parallax Nu] all modules loaded');
+    console.log('[Parallax Nu] all page modules loaded');
   }
 
   boot().catch((err) => {
@@ -80,6 +80,22 @@ EOF
   });
 })();
 EOF
+
+    while IFS= read -r file; do
+      if [[ ! -f "$file" ]]; then
+        echo "Missing privileged source file: $file" >&2
+        exit 1
+      fi
+
+      {
+        echo ""
+        echo "// ----- BEGIN PRIVILEGED: ${file#$PROJECT_ROOT/} -----"
+        cat "$file"
+        echo ""
+        echo "// ----- END PRIVILEGED: ${file#$PROJECT_ROOT/} -----"
+        echo ""
+      }
+    done < <(get_userscript_privileged_modules "$PROJECT_ROOT")
   } > "$DEV_LOADER_FILE"
 }
 
@@ -99,6 +115,7 @@ cat > "$OUT_FILE" <<EOF
 // @match        http://play.planets.nu/*
 // @grant        GM_xmlhttpRequest
 // @connect      api.planets.nu
+// @grant        unsafeWindow
 // @require      http://127.0.0.1:${PORT}/dev-loader.js?v=${STAMP}
 // ==/UserScript==
 EOF

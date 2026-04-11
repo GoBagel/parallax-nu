@@ -34,10 +34,28 @@ cat > "$TMP_FILE" <<EOF
 // @match        http://planets.nu/*
 // @match        http://play.planets.nu/*
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      api.planets.nu
 // ==/UserScript==
 
 EOF
+
+while IFS= read -r file; do
+  if [[ ! -f "$file" ]]; then
+    echo "Missing privileged source file: $file" >&2
+    rm -f "$TMP_FILE"
+    exit 1
+  fi
+
+  {
+    echo ""
+    echo "// ----- BEGIN PRIVILEGED: ${file#$PROJECT_ROOT/} -----"
+    cat "$file"
+    echo ""
+    echo "// ----- END PRIVILEGED: ${file#$PROJECT_ROOT/} -----"
+    echo ""
+  } >> "$TMP_FILE"
+done < <(get_userscript_privileged_modules "$PROJECT_ROOT")
 
 while IFS= read -r file; do
   if [[ ! -f "$file" ]]; then
