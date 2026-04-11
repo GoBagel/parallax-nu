@@ -214,6 +214,22 @@
     led.locationContextNow = locationContextNow;
     led.locationContextDelta = locationContextDelta;
 
+    (led.locationContextPreviousTurn?.shipsPresent || []).forEach((ship) => {
+      ensureShipEntity(entityMap, ship, led);
+    });
+
+    (led.locationContextNow?.shipsPresent || []).forEach((ship) => {
+      ensureShipEntity(entityMap, ship, led);
+    });
+
+    ensurePlanetEntity(entityMap, led.locationContextPreviousTurn);
+    ensurePlanetEntity(entityMap, led.locationContextNow);
+    ensureStarbaseEntity(
+      entityMap,
+      led.locationContextPreviousTurn,
+      led.locationContextNow
+    );
+
     led.entities = Array.from(entityMap.values());
     led.truth.entitiesPresentAtLocation = led.entities.map((e) => e.id);
     led.truth.totalShipsInvolved = led.entities.filter((e) => e.type === 'ship').length;
