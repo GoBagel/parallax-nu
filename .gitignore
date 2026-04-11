@@ -7,6 +7,7 @@ dist/
 # Game assets (not to be tracked)
 assets/models/
 assets/textures/
+assets/midi/
 
 # OS junk
 .DS_Store

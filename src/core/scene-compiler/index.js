@@ -37,12 +37,14 @@
       id: '',
       turnNumber: null,
       sectorId: null,
+
       source: {
         type: 'combat-location',
         combatIds: [],
         vcrIds: [],
         generatedAt: new Date().toISOString(),
       },
+
       location: {
         key: '',
         type: '',
@@ -58,28 +60,38 @@
           captionLong: '',
         },
       },
+
+      locationContextPreviousTurn: null,
+      locationContextNow: null,
+      locationContextDelta: null,
+
       viewer: {
         playerId: null,
         perspective: api.SCENE_ENUMS.perspective.PLAYER,
         knowledgeModelVersion: 1,
         fogOfWarEnabled: true,
       },
+
       truth: {
         entitiesPresentAtLocation: [],
         orderedCombats: [],
         totalShipsInvolved: 0,
         totalRacesInvolved: 0,
       },
+
       entities: [],
       combats: [],
       beats: [],
       phases: [],
+
       summary: {},
+
       narration: {
         introLines: [],
         notableMoments: [],
         summaryLines: [],
       },
+
       export: {
         title: '',
         shortTitle: '',
@@ -87,6 +99,7 @@
         tags: [],
         spoilerLevel: 'viewer-safe',
       },
+
       debug: {
         notes: [],
         assumptions: [],
@@ -94,8 +107,8 @@
     };
   };
 
-  api.compileLED = function compileLED({ turnData, locationKey, viewerPlayerId, options = {} }) {
-    let led = api.buildLocationBundle(turnData, locationKey, options);
+  api.compileLED = async function compileLED({ turnData, locationKey, viewerPlayerId, options = {} }) {
+    let led = await api.buildLocationBundle(turnData, locationKey, options);
     led = api.buildViewerModel(led, viewerPlayerId, turnData, options);
     led = api.applyEntryModes(led, options);
     led = api.buildCombatBeats(led, options);

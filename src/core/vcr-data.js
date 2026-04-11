@@ -787,6 +787,29 @@
 
     return null;
   }
+  function findStarbaseForPlanet(planetLike, starbases) {
+    const planetId = firstFiniteNumber(planetLike?.id, planetLike?.planetid);
+    const x = firstFiniteNumber(planetLike?.x);
+    const y = firstFiniteNumber(planetLike?.y);
+
+    return asArray(starbases).find((sb) => {
+      const sbPlanetId = firstFiniteNumber(
+        sb?.planetid,
+        sb?.planetId,
+        sb?.id,
+        sb?.baseid
+      );
+
+      if (planetId != null && sbPlanetId === planetId) return true;
+
+      const sbX = firstFiniteNumber(sb?.x);
+      const sbY = firstFiniteNumber(sb?.y);
+
+      if (x != null && y != null && sbX === x && sbY === y) return true;
+
+      return false;
+    }) || null;
+  }
   api.buildLocationContextFromSources = function buildLocationContextFromSources(location, sources = {}) {
     const x = firstFiniteNumber(location?.x);
     const y = firstFiniteNumber(location?.y);
@@ -829,15 +852,14 @@
       const ownerId = firstFiniteNumber(matchedPlanet.ownerid, matchedPlanet.owner);
       const planetId = firstFiniteNumber(matchedPlanet.id, matchedPlanet.planetid);
 
-      const matchedStarbase =
-        starbases.find((sb) => firstFiniteNumber(sb?.planetid, sb?.planetId) === planetId) ||
-        null;
+      const matchedStarbase = findStarbaseForPlanet(matchedPlanet, starbases);
 
       const hasStarbase = !!(
         matchedStarbase ||
         matchedPlanet.hasstarbase ||
         matchedPlanet.starbaseid != null ||
-        matchedPlanet.baseid != null
+        matchedPlanet.baseid != null ||
+        matchedPlanet.isbase === true
       );
 
       context.planet = {
