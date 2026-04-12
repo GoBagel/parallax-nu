@@ -1,3 +1,4 @@
+// VCR data extraction and normalization utilities.
 (function () {
   'use strict';
 
@@ -6,6 +7,181 @@
   const safe = api.safe;
   const escapeHtml = api.escapeHtml;
   const caps = api.caps;
+
+  function asArray(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  function firstFiniteNumber(...values) {
+    for (const value of values) {
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  }
+
+  function deepCloneArray(value) {
+    return JSON.parse(JSON.stringify(asArray(value)));
+  }
+
+  function makeEmptyLocationContext(location, dataCompleteness = 'none') {
+    return {
+      x: firstFiniteNumber(location?.x),
+      y: firstFiniteNumber(location?.y),
+      planet: null,
+      starbasePresent: false,
+      shipsPresent: [],
+      shipIdsPresent: [],
+      dataCompleteness,
+    };
+  }
+
+  function entityIdForResolved(resolved) {
+    if (!resolved) return null;
+    if (resolved.kind === 'ship' && resolved.oid != null) return `ship:${resolved.oid}`;
+    if (resolved.kind === 'planet' && resolved.oid != null) return `planet:${resolved.oid}`;
+    return resolved.oid != null ? `object:${resolved.oid}` : null;
+  }
+
+  function locationKeyFromNormalizedLocation(location) {
+    if (!location) return 'unknown';
+
+    if (location.type === 'planet' && location.planetId != null) {
+      return `planet:${location.planetId}`;
+    }
+
+    const x = firstFiniteNumber(location.x);
+    const y = firstFiniteNumber(location.y);
+
+    if (x != null && y != null) {
+      return `deep:${x},${y}`;
+    }
+
+    return 'unknown';
+  }
+
+  function getCurrentTurnNumber() {
+    const vgap = window.vgap;
+    const nu = window.nu;
+
+    return firstFiniteNumber(
+      vgap?.nowTurn,
+      vgap?.settings?.turn,
+      vgap?.game?.turn,
+      vgap?.turn,
+      vgap?.rst?.settings?.turn,
+      vgap?.rst?.turn,
+      nu?.turn,
+      nu?.rst?.turn,
+      nu?.year
+    );
+  }
+
+  function getCurrentPlayerId() {
+    const vgap = window.vgap;
+    const nu = window.nu;
+
+    return firstFiniteNumber(
+      vgap?.loadPlayerId,
+      vgap?.player?.id,
+      vgap?.rst?.player?.id,
+      nu?.data?.player?.id
+    );
+  }
+
+  function getCurrentGameId() {
+    const vgap = window.vgap;
+    const nu = window.nu;
+
+    return firstFiniteNumber(
+      vgap?.gameId,
+      vgap?.gameid,
+      vgap?.game?.id,
+      vgap?.settings?.id,
+      nu?.data?.game?.id,
+      vgap?.sectorid
+    );
+  }
+
+  function getApiKey() {
+    return (
+      window.vgap?.apikey ||
+      window.nu?.apikey ||
+      ''
+    );
+  }
+
+  function getCachedTurnRst(turnNumber) {
+    const vgap = window.vgap;
+    const turn = firstFiniteNumber(turnNumber);
+    if (turn == null) return null;
+
+    const rstStore = vgap?.rst;
+    if (!rstStore) return null;
+
+    const directGameId = firstFiniteNumber(vgap?.gameId, vgap?.gameid, vgap?.game?.id, vgap?.settings?.id);
+    const directPlayerId = firstFiniteNumber(vgap?.loadPlayerId, vgap?.player?.id);
+
+    if (directGameId != null && directPlayerId != null) {
+      const exactKey = `${directGameId}-${directPlayerId}-${turn}`;
+      const exactEntry = rstStore?.[exactKey] || null;
+      if (exactEntry?.rst) return exactEntry.rst;
+    }
+
+    const keys = Object.keys(rstStore);
+    for (const key of keys) {
+      const entry = rstStore[key];
+      if (!entry?.rst) continue;
+
+      const m = /^(\d+)-(\d+)-(\d+)$/.exec(key);
+      if (!m) continue;
+
+      const keyTurn = Number(m[3]);
+      if (keyTurn === turn) {
+        return entry.rst;
+      }
+    }
+
+    return null;
+  }
+
+  function inferPlanetAtCoords(coords) {
+    const nearestExact = api.findNearestPlanetToCoords(coords);
+    if (!nearestExact) return null;
+
+    if (
+      Number(nearestExact.x) === Number(coords?.x) &&
+      Number(nearestExact.y) === Number(coords?.y)
+    ) {
+      return api.getPlanetSnapshotById(nearestExact.id);
+    }
+
+    return null;
+  }
+
+  function findStarbaseForPlanet(planetLike, starbases) {
+    const planetId = firstFiniteNumber(planetLike?.id, planetLike?.planetid);
+    const x = firstFiniteNumber(planetLike?.x);
+    const y = firstFiniteNumber(planetLike?.y);
+
+    return asArray(starbases).find((sb) => {
+      const sbPlanetId = firstFiniteNumber(
+        sb?.planetid,
+        sb?.planetId,
+        sb?.id,
+        sb?.baseid
+      );
+
+      if (planetId != null && sbPlanetId === planetId) return true;
+
+      const sbX = firstFiniteNumber(sb?.x);
+      const sbY = firstFiniteNumber(sb?.y);
+
+      if (x != null && y != null && sbX === x && sbY === y) return true;
+
+      return false;
+    }) || null;
+  }
 
   api.getVcrs = function getVcrs() {
     const vcrs =
@@ -253,300 +429,17 @@
       return false;
     }
   };
-  function asArray(value) {
-    return Array.isArray(value) ? value : [];
-  }
 
-  function firstFiniteNumber(...values) {
-    for (const value of values) {
-      const n = Number(value);
-      if (Number.isFinite(n)) return n;
-    }
-    return null;
-  }
-
-  function entityIdForResolved(resolved) {
-    if (!resolved) return null;
-    if (resolved.kind === 'ship' && resolved.oid != null) return `ship:${resolved.oid}`;
-    if (resolved.kind === 'planet' && resolved.oid != null) return `planet:${resolved.oid}`;
-    return resolved.oid != null ? `object:${resolved.oid}` : null;
-  }
-
-  function locationKeyFromNormalizedLocation(location) {
-    if (!location) return 'unknown';
-
-    if (location.type === 'planet' && location.planetId != null) {
-      return `planet:${location.planetId}`;
-    }
-
-    const x = firstFiniteNumber(location.x);
-    const y = firstFiniteNumber(location.y);
-
-    if (x != null && y != null) {
-      return `deep:${x},${y}`;
-    }
-
-    return 'unknown';
-  }
-
-  function inferPlanetAtCoords(coords) {
-    const nearestExact = api.findNearestPlanetToCoords(coords);
-    if (!nearestExact) return null;
-
-    if (
-      Number(nearestExact.x) === Number(coords?.x) &&
-      Number(nearestExact.y) === Number(coords?.y)
-    ) {
-      return api.getPlanetSnapshotById(nearestExact.id);
-    }
-
-    return null;
-  }
-
-  function normalizeLocationFromVcr(v) {
-    const coords = api.getBattleCoords(v);
-    const { L, R } = api.getSides(v);
-    const a = api.resolveEntity(L);
-    const b = api.resolveEntity(R);
-
-    const directPlanetId = firstFiniteNumber(
-      a.kind === 'planet' ? a.oid : null,
-      b.kind === 'planet' ? b.oid : null
-    );
-
-    const directPlanetSnapshot = directPlanetId != null
-      ? api.getPlanetSnapshotById(directPlanetId)
-      : null;
-
-    const planetAtCoords = !directPlanetSnapshot ? inferPlanetAtCoords(coords) : null;
-    const planet = directPlanetSnapshot || planetAtCoords || null;
-
-    const referencePlanet = coords ? api.findNearestPlanetToCoords(coords) : null;
-
-    if (planet) {
-      return {
-        type: 'planet',
-        x: coords?.x ?? firstFiniteNumber(planet.x),
-        y: coords?.y ?? firstFiniteNumber(planet.y),
-        planetId: firstFiniteNumber(planet.id),
-        planetName: String(planet.name || '').trim(),
-        hasStarbase: !!(
-          planet.hasStarbase ||
-          a.planetHasStarbase ||
-          b.planetHasStarbase
-        ),
-        planet,
-        referencePlanet: referencePlanet || {
-          id: firstFiniteNumber(planet.id),
-          name: String(planet.name || '').trim(),
-          x: firstFiniteNumber(planet.x),
-          y: firstFiniteNumber(planet.y),
-          distanceLy: 0,
-        },
-      };
-    }
-
-    return {
-      type: 'deep-space',
-      x: coords?.x ?? null,
-      y: coords?.y ?? null,
-      planetId: null,
-      planetName: '',
-      hasStarbase: false,
-      planet: null,
-      referencePlanet,
-    };
-  }
-
-  function normalizeParticipantFromResolved(resolved, role) {
-    if (!resolved) return null;
-
-    if (resolved.kind === 'ship') {
-      const side = resolved.side || {};
-      const ship = resolved.ship || {};
-      const ownerId = firstFiniteNumber(
-        side.ownerid,
-        side.owner,
-        ship.ownerid,
-        ship.owner
-      );
-
-      return {
-        entityId: entityIdForResolved(resolved),
-        role,
-        type: 'ship',
-        shipId: firstFiniteNumber(side.shipid, side.id, ship.id, resolved.oid),
-        objectId: resolved.oid,
-        name: String(
-          side.name ||
-          side.shipname ||
-          ship.name ||
-          ''
-        ).trim(),
-        ownerId,
-        ownerName: api.getPlayerNameById(ownerId),
-        raceId: firstFiniteNumber(side.raceid, ship.raceid, ownerId),
-        hullId: firstFiniteNumber(side.hullid, ship.hullid, resolved.vcrHullId),
-        hullName: api.hullNameFromVcrHullId(
-          firstFiniteNumber(side.hullid, ship.hullid, resolved.vcrHullId)
-        ),
-        mass: firstFiniteNumber(side.mass, ship.mass),
-        beamCount: firstFiniteNumber(side.beams, side.beamcount, ship.beams, ship.beamcount),
-        torpCount: firstFiniteNumber(side.torps, side.launchers, ship.torps, ship.launchers),
-        fighterCount: firstFiniteNumber(side.fighters, ship.fighters, side.bays, ship.bays),
-        xp: firstFiniteNumber(side.xp, side.experience, ship.xp, ship.experience) ?? 0,
-      };
-    }
-
-    if (resolved.kind === 'planet') {
-      const side = resolved.side || {};
-      const planet = resolved.planet || {};
-
-      return {
-        entityId: entityIdForResolved(resolved),
-        role,
-        type: 'planet',
-        planetId: firstFiniteNumber(side.planetid, planet.id, resolved.oid),
-        objectId: resolved.oid,
-        name: String(side.name || planet.name || '').trim(),
-        ownerId: firstFiniteNumber(side.ownerid, planet.ownerid, planet.owner),
-        ownerName: api.getPlayerNameById(firstFiniteNumber(side.ownerid, planet.ownerid, planet.owner)),
-        raceId: null,
-        hullId: 0,
-        hullName: resolved.planetHasStarbase ? 'Orbital Starbase' : 'Planet',
-        mass: null,
-        beamCount: null,
-        torpCount: null,
-        fighterCount: null,
-        xp: 0,
-        hasStarbase: !!resolved.planetHasStarbase,
-      };
-    }
-
-    return {
-      entityId: entityIdForResolved(resolved),
-      role,
-      type: 'unknown',
-      objectId: resolved.oid,
-      name: String(
-        resolved.side?.name ||
-        resolved.side?.shipname ||
-        resolved.side?.label ||
-        ''
-      ).trim(),
-      ownerId: null,
-      ownerName: '',
-      raceId: null,
-      hullId: resolved.vcrHullId ?? null,
-      hullName: '',
-      mass: null,
-      beamCount: null,
-      torpCount: null,
-      fighterCount: null,
-      xp: 0,
-    };
-  }
-
-  function dedupeParticipants(participants) {
-    const seen = new Set();
-    const out = [];
-
-    for (const p of participants) {
-      if (!p || !p.entityId) continue;
-      if (seen.has(p.entityId)) continue;
-      seen.add(p.entityId);
-      out.push(p);
-    }
-
-    return out;
-  }
-
-  api.normalizeCombatRecord = function normalizeCombatRecord(v, orderIndex = 0) {
-    const { L, R } = api.getSides(v);
-    const leftResolved = api.resolveEntity(L);
-    const rightResolved = api.resolveEntity(R);
-
-    const location = normalizeLocationFromVcr(v);
-    const locationKey = locationKeyFromNormalizedLocation(location);
-
-    const participants = dedupeParticipants([
-      normalizeParticipantFromResolved(leftResolved, 'left'),
-      normalizeParticipantFromResolved(rightResolved, 'right'),
-    ]);
-    const locationContextNow = api.getLocationContextNow(location);
-
-    return {
-      id: `combat:${firstFiniteNumber(v?.id, v?.vcrid, orderIndex) ?? orderIndex}`,
-      vcrId: firstFiniteNumber(v?.id, v?.vcrid, orderIndex),
-      orderIndex,
-      locationKey,
-      location,
-      locationContextNow,
-      coords: {
-        x: location.x,
-        y: location.y,
-      },
-      battleType: api.inferBattleType(v),
-      participants,
-      truthOutcome: {
-        winnerEntityId: null,
-        loserEntityId: null,
-        destroyedEntityIds: [],
-        survivorEntityIds: [],
-      },
-      raw: v,
-    };
-  };
-
-  function getCurrentTurnNumber() {
+  api.getPlayerNameById = function getPlayerNameById(playerId) {
     const vgap = window.vgap;
-    const nu = window.nu;
+    const pid = firstFiniteNumber(playerId);
+    if (pid == null) return '';
 
-    return firstFiniteNumber(
-      vgap?.turn,
-      vgap?.currentTurn,
-      vgap?.rst?.turn,
-      vgap?.game?.turn,
-      nu?.turn,
-      nu?.rst?.turn
-    );
-  }
+    const player = asArray(vgap?.players).find((p) => {
+      return firstFiniteNumber(p?.id, p?.playerid) === pid;
+    });
 
-  api.getNormalizedCombatData = function getNormalizedCombatData() {
-    const vgap = window.vgap;
-    const vcrs = api.getVcrs();
-
-    return {
-      turnNumber: getCurrentTurnNumber(),
-      sectorId: firstFiniteNumber(vgap?.gameid, vgap?.game?.id, vgap?.sectorid) ?? null,
-      combats: vcrs.map((v, index) => api.normalizeCombatRecord(v, index)),
-    };
-  };
-
-  api.getCombatLocationKeys = function getCombatLocationKeys(turnData) {
-    const combats = asArray(turnData?.combats);
-    return Array.from(new Set(
-      combats
-        .map((c) => c.locationKey)
-        .filter((k) => typeof k === 'string' && k.length)
-    ));
-  };
-
-  api.getCombatsForLocation = function getCombatsForLocation(turnData, locationKey) {
-    const combats = asArray(turnData?.combats);
-    return combats.filter((c) => c.locationKey === locationKey);
-  };
-
-  api.debugNormalizedCombatSummary = function debugNormalizedCombatSummary(turnData) {
-    const data = turnData || api.getNormalizedCombatData();
-
-    return {
-      turnNumber: data?.turnNumber ?? null,
-      sectorId: data?.sectorId ?? null,
-      combatCount: Array.isArray(data?.combats) ? data.combats.length : 0,
-      locationKeys: api.getCombatLocationKeys(data),
-      sample: Array.isArray(data?.combats) ? data.combats.slice(0, 3) : [],
-    };
+    return String(player?.name || player?.username || '').trim();
   };
 
   api.getPlanetSnapshotById = function getPlanetSnapshotById(planetId) {
@@ -674,18 +567,6 @@
     };
   };
 
-  api.getPlayerNameById = function getPlayerNameById(playerId) {
-    const vgap = window.vgap;
-    const pid = firstFiniteNumber(playerId);
-    if (pid == null) return '';
-
-    const player = asArray(vgap?.players).find((p) => {
-      return firstFiniteNumber(p?.id, p?.playerid) === pid;
-    });
-
-    return String(player?.name || player?.username || '').trim();
-  };
-
   api.getShipSnapshotById = function getShipSnapshotById(shipId) {
     const vgap = window.vgap;
     const sid = firstFiniteNumber(shipId);
@@ -703,17 +584,19 @@
     if (!ship) return null;
 
     const ownerId = firstFiniteNumber(ship.ownerid, ship.owner);
+    const hullId = firstFiniteNumber(ship.hullid);
 
     return {
       id: sid,
+      entityId: `ship:${sid}`,
       name: String(ship.name || ship.shipname || '').trim(),
       x: firstFiniteNumber(ship.x),
       y: firstFiniteNumber(ship.y),
       ownerId,
       ownerName: api.getPlayerNameById(ownerId),
       raceId: firstFiniteNumber(ship.raceid, ownerId),
-      hullId: firstFiniteNumber(ship.hullid),
-      hullName: api.hullNameFromVcrHullId(firstFiniteNumber(ship.hullid)),
+      hullId,
+      hullName: api.hullNameFromVcrHullId(hullId),
       mass: firstFiniteNumber(ship.mass),
       beamCount: firstFiniteNumber(ship.beams, ship.beamcount),
       torpCount: firstFiniteNumber(ship.torps, ship.launchers),
@@ -723,93 +606,235 @@
     };
   };
 
-  api.getLocationContextNow = function getLocationContextNow(location) {
-    const vgap = window.vgap;
-    const x = firstFiniteNumber(location?.x);
-    const y = firstFiniteNumber(location?.y);
+  api.getShipSnapshotByIdFromSources = function getShipSnapshotByIdFromSources(shipId, sources) {
+    const sid = firstFiniteNumber(shipId);
+    if (sid == null) return null;
 
-    const result = {
-      x,
-      y,
-      planet: null,
-      starbasePresentNow: false,
-      shipsPresentNow: [],
+    const ships = asArray(sources?.ships);
+    const ship = ships.find((s) => firstFiniteNumber(s?.id, s?.shipid) === sid);
+    if (!ship) return null;
+
+    const ownerId = firstFiniteNumber(ship.ownerid, ship.owner);
+    const hullId = firstFiniteNumber(ship.hullid);
+
+    return {
+      id: sid,
+      entityId: `ship:${sid}`,
+      name: String(ship.name || ship.shipname || '').trim(),
+      x: firstFiniteNumber(ship.x),
+      y: firstFiniteNumber(ship.y),
+      ownerId,
+      ownerName: api.getPlayerNameById(ownerId),
+      raceId: firstFiniteNumber(ship.raceid, ownerId),
+      hullId,
+      hullName: api.hullNameFromVcrHullId(hullId),
+      mass: firstFiniteNumber(ship.mass),
+      beamCount: firstFiniteNumber(ship.beams, ship.beamcount),
+      torpCount: firstFiniteNumber(ship.torps, ship.launchers),
+      fighterCount: firstFiniteNumber(ship.fighters, ship.bays),
+      xp: firstFiniteNumber(ship.xp, ship.experience) ?? 0,
+      raw: ship,
     };
-
-    if (x == null || y == null) return result;
-
-    if (location?.planetId != null) {
-      result.planet = api.getPlanetSnapshotById(location.planetId);
-      result.starbasePresentNow = !!result.planet?.hasStarbase;
-    }
-
-    const ships = asArray(vgap?.ships)
-      .filter((s) => firstFiniteNumber(s?.x) === x && firstFiniteNumber(s?.y) === y)
-      .map((s) => api.getShipSnapshotById(firstFiniteNumber(s?.id, s?.shipid)))
-      .filter(Boolean);
-
-    result.shipsPresentNow = ships;
-
-    return result;
   };
-  function getCachedTurnRst(turnNumber) {
-    const vgap = window.vgap;
-    const turn = firstFiniteNumber(turnNumber);
-    if (turn == null) return null;
 
-    const rstStore = vgap?.rst;
-    if (!rstStore) return null;
+  api.isSameShipIdentity = function isSameShipIdentity(a, b) {
+    if (!a || !b) return false;
 
-    const directGameId = firstFiniteNumber(vgap?.gameId, vgap?.gameid, vgap?.game?.id, vgap?.settings?.id);
-    const directPlayerId = firstFiniteNumber(vgap?.loadPlayerId, vgap?.player?.id);
+    const aOwner = a.ownerId ?? null;
+    const bOwner = b.ownerId ?? null;
+    const aHull = a.hullId ?? null;
+    const bHull = b.hullId ?? null;
 
-    // First try the exact key we expect.
-    if (directGameId != null && directPlayerId != null) {
-      const exactKey = `${directGameId}-${directPlayerId}-${turn}`;
-      const exactEntry = rstStore?.[exactKey] || null;
-      if (exactEntry?.rst) return exactEntry.rst;
+    const ownerComparable = aOwner != null && bOwner != null;
+    const hullComparable = aHull != null && bHull != null;
+
+    if (!ownerComparable && !hullComparable) return false;
+
+    if (ownerComparable && aOwner !== bOwner) return false;
+    if (hullComparable && aHull !== bHull) return false;
+
+    return true;
+  };
+
+  api.classifyShipIdentityRelation = function classifyShipIdentityRelation(a, b) {
+    if (!a || !b) return 'unknown';
+    if (api.isSameShipIdentity(a, b)) return 'same-ship';
+
+    const ownerComparable = (a.ownerId ?? null) != null && (b.ownerId ?? null) != null;
+    const hullComparable = (a.hullId ?? null) != null && (b.hullId ?? null) != null;
+
+    if ((ownerComparable && a.ownerId !== b.ownerId) || (hullComparable && a.hullId !== b.hullId)) {
+      return 'id-reused-later';
     }
 
-    // Then scan all keys for anything ending in the requested turn.
-    const keys = Object.keys(rstStore);
-    for (const key of keys) {
-      const entry = rstStore[key];
-      if (!entry?.rst) continue;
+    return 'unknown';
+  };
 
-      const m = /^(\d+)-(\d+)-(\d+)$/.exec(key);
-      if (!m) continue;
+  api.getPreviousTurnShipSnapshot = async function getPreviousTurnShipSnapshot(shipId, options = {}) {
+    const currentTurn = firstFiniteNumber(options.turnNumber, getCurrentTurnNumber());
+    const previousTurn = currentTurn != null ? currentTurn - 1 : null;
 
-      const keyTurn = Number(m[3]);
-      if (keyTurn === turn) {
-        return entry.rst;
-      }
+    if (previousTurn == null || previousTurn < 1) return null;
+
+    const sources = await api.fetchTurnSources(previousTurn, options);
+    if (!sources) return null;
+
+    return api.getShipSnapshotByIdFromSources(shipId, sources);
+  };
+
+  function normalizeLocationFromVcr(v) {
+    const coords = api.getBattleCoords(v);
+    const { L, R } = api.getSides(v);
+    const a = api.resolveEntity(L);
+    const b = api.resolveEntity(R);
+
+    const directPlanetId = firstFiniteNumber(
+      a.kind === 'planet' ? a.oid : null,
+      b.kind === 'planet' ? b.oid : null
+    );
+
+    const directPlanetSnapshot = directPlanetId != null
+      ? api.getPlanetSnapshotById(directPlanetId)
+      : null;
+
+    const planetAtCoords = !directPlanetSnapshot ? inferPlanetAtCoords(coords) : null;
+    const planet = directPlanetSnapshot || planetAtCoords || null;
+
+    const referencePlanet = coords ? api.findNearestPlanetToCoords(coords) : null;
+
+    if (planet) {
+      return {
+        type: 'planet',
+        x: coords?.x ?? firstFiniteNumber(planet.x),
+        y: coords?.y ?? firstFiniteNumber(planet.y),
+        planetId: firstFiniteNumber(planet.id),
+        planetName: String(planet.name || '').trim(),
+        hasStarbase: !!(
+          planet.hasStarbase ||
+          a.planetHasStarbase ||
+          b.planetHasStarbase
+        ),
+        planet,
+        referencePlanet: referencePlanet || {
+          id: firstFiniteNumber(planet.id),
+          name: String(planet.name || '').trim(),
+          x: firstFiniteNumber(planet.x),
+          y: firstFiniteNumber(planet.y),
+          distanceLy: 0,
+        },
+      };
     }
 
-    return null;
+    return {
+      type: 'deep-space',
+      x: coords?.x ?? null,
+      y: coords?.y ?? null,
+      planetId: null,
+      planetName: '',
+      hasStarbase: false,
+      planet: null,
+      referencePlanet,
+    };
   }
-  function findStarbaseForPlanet(planetLike, starbases) {
-    const planetId = firstFiniteNumber(planetLike?.id, planetLike?.planetid);
-    const x = firstFiniteNumber(planetLike?.x);
-    const y = firstFiniteNumber(planetLike?.y);
 
-    return asArray(starbases).find((sb) => {
-      const sbPlanetId = firstFiniteNumber(
-        sb?.planetid,
-        sb?.planetId,
-        sb?.id,
-        sb?.baseid
-      );
+  function normalizeParticipantFromResolved(resolved, role) {
+    if (!resolved) return null;
 
-      if (planetId != null && sbPlanetId === planetId) return true;
+    if (resolved.kind === 'ship') {
+      const side = resolved.side || {};
 
-      const sbX = firstFiniteNumber(sb?.x);
-      const sbY = firstFiniteNumber(sb?.y);
+      const raceId = firstFiniteNumber(side.raceid);
+      const ownerId = firstFiniteNumber(side.ownerid, side.owner, raceId);
+      const hullId = firstFiniteNumber(side.hullid, resolved.vcrHullId);
 
-      if (x != null && y != null && sbX === x && sbY === y) return true;
+      return {
+        entityId: entityIdForResolved(resolved),
+        role,
+        type: 'ship',
+        shipId: firstFiniteNumber(side.shipid, side.id, resolved.oid),
+        objectId: resolved.oid,
+        name: String(
+          side.name ||
+          side.shipname ||
+          side.label ||
+          ''
+        ).trim(),
+        ownerId,
+        ownerName: api.getPlayerNameById(ownerId),
+        raceId: raceId ?? ownerId,
+        hullId,
+        hullName: api.hullNameFromVcrHullId(hullId),
+        mass: firstFiniteNumber(side.mass),
+        beamCount: firstFiniteNumber(side.beams, side.beamcount),
+        torpCount: firstFiniteNumber(side.torps, side.launchers),
+        fighterCount: firstFiniteNumber(side.fighters, side.bays),
+        xp: firstFiniteNumber(side.xp, side.experience) ?? 0,
+      };
+    }
 
-      return false;
-    }) || null;
+    if (resolved.kind === 'planet') {
+      const side = resolved.side || {};
+      const planet = resolved.planet || {};
+
+      return {
+        entityId: entityIdForResolved(resolved),
+        role,
+        type: 'planet',
+        planetId: firstFiniteNumber(side.planetid, planet.id, resolved.oid),
+        objectId: resolved.oid,
+        name: String(side.name || planet.name || '').trim(),
+        ownerId: firstFiniteNumber(side.ownerid, planet.ownerid, planet.owner),
+        ownerName: api.getPlayerNameById(firstFiniteNumber(side.ownerid, planet.ownerid, planet.owner)),
+        raceId: null,
+        hullId: 0,
+        hullName: resolved.planetHasStarbase ? 'Orbital Starbase' : 'Planet',
+        mass: null,
+        beamCount: null,
+        torpCount: null,
+        fighterCount: null,
+        xp: 0,
+        hasStarbase: !!resolved.planetHasStarbase,
+      };
+    }
+
+    return {
+      entityId: entityIdForResolved(resolved),
+      role,
+      type: 'unknown',
+      objectId: resolved.oid,
+      name: String(
+        resolved.side?.name ||
+        resolved.side?.shipname ||
+        resolved.side?.label ||
+        ''
+      ).trim(),
+      ownerId: null,
+      ownerName: '',
+      raceId: null,
+      hullId: resolved.vcrHullId ?? null,
+      hullName: '',
+      mass: null,
+      beamCount: null,
+      torpCount: null,
+      fighterCount: null,
+      xp: 0,
+    };
   }
+
+  function dedupeParticipants(participants) {
+    const seen = new Set();
+    const out = [];
+
+    for (const p of participants) {
+      if (!p || !p.entityId) continue;
+      if (seen.has(p.entityId)) continue;
+      seen.add(p.entityId);
+      out.push(p);
+    }
+
+    return out;
+  }
+
   api.buildLocationContextFromSources = function buildLocationContextFromSources(location, sources = {}) {
     const x = firstFiniteNumber(location?.x);
     const y = firstFiniteNumber(location?.y);
@@ -868,7 +893,7 @@
         x: firstFiniteNumber(matchedPlanet.x),
         y: firstFiniteNumber(matchedPlanet.y),
         ownerId,
-        ownerName: api.getPlayerNameById ? api.getPlayerNameById(ownerId) : '',
+        ownerName: api.getPlayerNameById(ownerId),
         temp: firstFiniteNumber(
           matchedPlanet.temp,
           matchedPlanet.temperature,
@@ -933,18 +958,19 @@
       .map((ship) => {
         const ownerId = firstFiniteNumber(ship.ownerid, ship.owner);
         const hullId = firstFiniteNumber(ship.hullid);
+        const sid = firstFiniteNumber(ship.id, ship.shipid);
 
         return {
-          id: firstFiniteNumber(ship.id, ship.shipid),
-          entityId: `ship:${firstFiniteNumber(ship.id, ship.shipid)}`,
+          id: sid,
+          entityId: sid != null ? `ship:${sid}` : null,
           name: String(ship.name || ship.shipname || '').trim(),
           x: firstFiniteNumber(ship.x),
           y: firstFiniteNumber(ship.y),
           ownerId,
-          ownerName: api.getPlayerNameById ? api.getPlayerNameById(ownerId) : '',
+          ownerName: api.getPlayerNameById(ownerId),
           raceId: firstFiniteNumber(ship.raceid, ownerId),
           hullId,
-          hullName: api.hullNameFromVcrHullId ? api.hullNameFromVcrHullId(hullId) : '',
+          hullName: api.hullNameFromVcrHullId(hullId),
           mass: firstFiniteNumber(ship.mass),
           beamCount: firstFiniteNumber(ship.beams, ship.beamcount),
           torpCount: firstFiniteNumber(ship.torps, ship.launchers),
@@ -952,12 +978,14 @@
           xp: firstFiniteNumber(ship.xp, ship.experience) ?? 0,
           raw: ship,
         };
-      });
+      })
+      .filter((s) => !!s.entityId);
 
     context.shipIdsPresent = context.shipsPresent.map((s) => s.entityId);
 
     return context;
   };
+
   api.getLocationContextNow = function getLocationContextNow(location) {
     const vgap = window.vgap;
 
@@ -968,6 +996,7 @@
       dataCompleteness: 'full',
     });
   };
+
   api.getLocationContextPreviousTurn = async function getLocationContextPreviousTurn(location, options = {}) {
     const currentTurn = firstFiniteNumber(options.turnNumber, getCurrentTurnNumber());
     const previousTurn = currentTurn != null ? currentTurn - 1 : null;
@@ -988,6 +1017,7 @@
       dataCompleteness: sources.dataCompleteness || 'partial',
     });
   };
+
   api.getLocationContextDelta = function getLocationContextDelta(previousCtx, currentCtx) {
     const prevShipIds = new Set(asArray(previousCtx?.shipIdsPresent));
     const currShipIds = new Set(asArray(currentCtx?.shipIdsPresent));
@@ -1033,6 +1063,82 @@
       currentDataCompleteness: currentCtx?.dataCompleteness || 'none',
     };
   };
+
+  api.normalizeCombatRecord = function normalizeCombatRecord(v, orderIndex = 0) {
+    const { L, R } = api.getSides(v);
+    const leftResolved = api.resolveEntity(L);
+    const rightResolved = api.resolveEntity(R);
+
+    const location = normalizeLocationFromVcr(v);
+    const locationKey = locationKeyFromNormalizedLocation(location);
+
+    const participants = dedupeParticipants([
+      normalizeParticipantFromResolved(leftResolved, 'left'),
+      normalizeParticipantFromResolved(rightResolved, 'right'),
+    ]);
+
+    const locationContextNow = api.getLocationContextNow(location);
+
+    return {
+      id: `combat:${firstFiniteNumber(v?.id, v?.vcrid, orderIndex) ?? orderIndex}`,
+      vcrId: firstFiniteNumber(v?.id, v?.vcrid, orderIndex),
+      orderIndex,
+      locationKey,
+      location,
+      locationContextNow,
+      coords: {
+        x: location.x,
+        y: location.y,
+      },
+      battleType: api.inferBattleType(v),
+      participants,
+      truthOutcome: {
+        winnerEntityId: null,
+        loserEntityId: null,
+        destroyedEntityIds: [],
+        survivorEntityIds: [],
+      },
+      raw: v,
+    };
+  };
+
+  api.getNormalizedCombatData = function getNormalizedCombatData() {
+    const vgap = window.vgap;
+    const vcrs = api.getVcrs();
+
+    return {
+      turnNumber: getCurrentTurnNumber(),
+      sectorId: firstFiniteNumber(vgap?.gameid, vgap?.game?.id, vgap?.sectorid) ?? null,
+      combats: vcrs.map((v, index) => api.normalizeCombatRecord(v, index)),
+    };
+  };
+
+  api.getCombatLocationKeys = function getCombatLocationKeys(turnData) {
+    const combats = asArray(turnData?.combats);
+    return Array.from(new Set(
+      combats
+        .map((c) => c.locationKey)
+        .filter((k) => typeof k === 'string' && k.length)
+    ));
+  };
+
+  api.getCombatsForLocation = function getCombatsForLocation(turnData, locationKey) {
+    const combats = asArray(turnData?.combats);
+    return combats.filter((c) => c.locationKey === locationKey);
+  };
+
+  api.debugNormalizedCombatSummary = function debugNormalizedCombatSummary(turnData) {
+    const data = turnData || api.getNormalizedCombatData();
+
+    return {
+      turnNumber: data?.turnNumber ?? null,
+      sectorId: data?.sectorId ?? null,
+      combatCount: Array.isArray(data?.combats) ? data.combats.length : 0,
+      locationKeys: api.getCombatLocationKeys(data),
+      sample: Array.isArray(data?.combats) ? data.combats.slice(0, 3) : [],
+    };
+  };
+
   api.getCachedTurnSummaries = function getCachedTurnSummaries() {
     const vgap = window.vgap;
     const rstStore = vgap?.rst;
@@ -1056,6 +1162,7 @@
       })
       .sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0));
   };
+
   api.debugPreviousTurnContextLookup = function debugPreviousTurnContextLookup(location, options = {}) {
     const vgap = window.vgap;
 
@@ -1080,52 +1187,6 @@
       location,
     };
   };
-  function deepCloneArray(value) {
-    return JSON.parse(JSON.stringify(asArray(value)));
-  }
-
-  function getCurrentTurnNumber() {
-    const vgap = window.vgap;
-    const nu = window.nu;
-
-    return firstFiniteNumber(
-      vgap?.nowTurn,
-      vgap?.settings?.turn,
-      vgap?.game?.turn,
-      vgap?.turn,
-      vgap?.rst?.settings?.turn,
-      nu?.year
-    );
-  }
-
-  function makeEmptyLocationContext(location, dataCompleteness = 'none') {
-    return {
-      x: firstFiniteNumber(location?.x),
-      y: firstFiniteNumber(location?.y),
-      planet: null,
-      starbasePresent: false,
-      shipsPresent: [],
-      shipIdsPresent: [],
-      dataCompleteness,
-    };
-  }
-
-  function snapshotLiveTurnSources(dataCompleteness = 'full') {
-    const vgap = window.vgap;
-
-    return {
-      turnNumber: getCurrentTurnNumber(),
-      planets: deepCloneArray(vgap?.planets),
-      ships: deepCloneArray(vgap?.ships),
-      starbases: deepCloneArray(vgap?.starbases),
-      dataCompleteness,
-      source: 'live',
-    };
-  }
-
-  function delay(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
-  }
 
   api.turnSourceProvider = api.turnSourceProvider || null;
 
@@ -1179,72 +1240,6 @@
     return null;
   };
 
-  api.fetchTurnSourcesViaTimeMachine = async function fetchTurnSourcesViaTimeMachine(turnNumber, options = {}) {
-    const vgap = window.vgap;
-    const tm = vgap?.timeMachine;
-    const targetTurn = firstFiniteNumber(turnNumber);
-    const currentTurn = getCurrentTurnNumber();
-
-    if (targetTurn == null || currentTurn == null) return null;
-    if (!tm?.viewPreviousTurn || !tm?.viewCurrentTurn) return null;
-
-    // Conservative first pass: only support fetching the immediately previous turn.
-    if (targetTurn !== currentTurn - 1) return null;
-
-    const settleMs = firstFiniteNumber(options.settleMs) ?? 400;
-
-    try {
-      tm.viewPreviousTurn();
-      await delay(settleMs);
-
-      const snapshot = snapshotLiveTurnSources('partial');
-      snapshot.turnNumber = targetTurn;
-      snapshot.source = 'time-machine';
-
-      tm.viewCurrentTurn();
-      await delay(settleMs);
-
-      return snapshot;
-    } catch (err) {
-      try {
-        tm.viewCurrentTurn();
-      } catch {}
-      return null;
-    }
-  };
-
-  function getCurrentPlayerId() {
-    const vgap = window.vgap;
-    const nu = window.nu;
-
-    return firstFiniteNumber(
-      vgap?.loadPlayerId,
-      vgap?.player?.id,
-      vgap?.rst?.player?.id,
-      nu?.data?.player?.id
-    );
-  }
-
-  function getCurrentGameId() {
-    const vgap = window.vgap;
-    const nu = window.nu;
-
-    return firstFiniteNumber(
-      vgap?.gameId,
-      vgap?.gameid,
-      vgap?.game?.id,
-      vgap?.settings?.id,
-      nu?.data?.game?.id
-    );
-  }
-
-  function getApiKey() {
-    return (
-      window.vgap?.apikey ||
-      window.nu?.apikey ||
-      ''
-    );
-  }
   api.getLoadTurnRequestParams = function getLoadTurnRequestParams(turnNumber, options = {}) {
     const turn = firstFiniteNumber(turnNumber);
     const gameId = firstFiniteNumber(options.gameId, getCurrentGameId());

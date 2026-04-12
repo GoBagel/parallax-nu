@@ -1,3 +1,4 @@
+// Scene compiler debugging utilities: functions to convert complex LED (Location Event Data) objects into human-readable text summaries for easier debugging and analysis.
 (function () {
   'use strict';
 
@@ -29,9 +30,19 @@
     lines.push('Entities:');
     (led.entities || []).forEach((e) => {
       const own = e.truthOwnership || {};
-      lines.push(
-        `- ${e.id} | type=${e.type} | owner=${e.ownerId ?? '?'} | startOwner=${own.ownerIdAtStart ?? '?'} | endOwner=${own.ownerIdAtEnd ?? '?'} | ownerChanged=${own.ownerChangedDuringEvent ? 'yes' : 'no'} | race=${e.raceId ?? '?'} | tags=${(e.sourceTags || []).join(',') || '(none)'} | entry=${e.presentation?.entryMode || '(unset)'}`
-      );
+      const ident = e.truthIdentity || {};
+      const base =
+        `- ${e.id} | type=${e.type} | startOwner=${own.ownerIdAtStart ?? '?'} | endOwner=${own.ownerIdAtEnd ?? '?'} | ownerChanged=${own.ownerChangedDuringEvent ? 'yes' : 'no'} | tags=${(e.sourceTags || []).join(',') || '(none)'} | entry=${e.presentation?.entryMode || '(unset)'}`;
+
+      if (e.type === 'ship') {
+        lines.push(
+          `${base} | currentIdRelation=${ident.currentIdRelation || 'unknown'} | previousTurnIdRelation=${ident.previousTurnIdRelation || 'unknown'} | idReusedLater=${ident.idReusedLater ? 'yes' : 'no'} | newlyBuiltThisTurn=${ident.newlyBuiltThisTurn ? 'yes' : 'no'} | finalState=${e.truthState?.finalState || 'unknown'}`
+        );
+      } else {
+        lines.push(
+          `${base} | finalState=${e.truthState?.finalState || 'unknown'}`
+        );
+      }
     });
 
     lines.push('');

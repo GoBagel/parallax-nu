@@ -1,3 +1,4 @@
+// Scene compiler: builds comprehensive "LED" (Location Event Data) bundles for specific location events, aggregating combat data, location contexts, and entity information to support cinematic scene generation.
 (function () {
   'use strict';
 
@@ -49,6 +50,28 @@
 
   function sortByOrderIndex(a, b) {
     return (a?.orderIndex ?? 0) - (b?.orderIndex ?? 0);
+  }
+
+  function firstFiniteNumber(...values) {
+    for (const value of values) {
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  }
+
+  function preferOwnerId(...values) {
+    for (const value of values) {
+      const n = firstFiniteNumber(value);
+      if (n != null && n !== 0) return n;
+    }
+    return firstFiniteNumber(...values);
+  }
+
+  function ownerNameForId(ownerId, fallbackName = '') {
+    const n = firstFiniteNumber(ownerId);
+    if (n == null) return fallbackName || '';
+    return api.getPlayerNameById ? (api.getPlayerNameById(n) || fallbackName || '') : (fallbackName || '');
   }
 
   function cloneNormalizedLocation(location, fallbackKey) {
@@ -138,6 +161,15 @@
     };
   }
 
+  function truthIdentityBlock() {
+    return {
+      currentIdRelation: 'unknown',
+      previousTurnIdRelation: 'unknown',
+      idReusedLater: false,
+      newlyBuiltThisTurn: false,
+    };
+  }
+
   function ensureShipEntity(entityMap, shipLike, led, sourceTag) {
     const entityId =
       shipLike?.entityId ||
@@ -150,6 +182,39 @@
 
     if (entityMap.has(entityId)) {
       const existing = entityMap.get(entityId);
+
+      if (sourceTag === 'location-prev' || sourceTag === 'location-now') {
+        const relation = api.classifyShipIdentityRelation(
+          {
+            ownerId: existing.truthOwnership?.ownerIdAtStart ?? existing.ownerId ?? null,
+            hullId: existing.hullId ?? null,
+          },
+          {
+            ownerId,
+            hullId: shipLike?.hullId ?? null,
+          }
+        );
+
+        existing.truthIdentity = existing.truthIdentity || truthIdentityBlock();
+
+        if (sourceTag === 'location-prev') {
+          existing.truthIdentity.previousTurnIdRelation = relation;
+        }
+        if (sourceTag === 'location-now') {
+          existing.truthIdentity.currentIdRelation = relation;
+        }
+
+        if (relation === 'id-reused-later') {
+          if (sourceTag === 'location-now') {
+            existing.truthIdentity.idReusedLater = true;
+          }
+          if (sourceTag === 'location-prev') {
+            existing.truthIdentity.newlyBuiltThisTurn = true;
+          }
+          return;
+        }
+      }
+
       pushSourceTag(existing, sourceTag);
 
       if (!existing.name && shipLike?.name) existing.name = shipLike.name;
@@ -157,21 +222,15 @@
       if (existing.hullId == null) existing.hullId = shipLike?.hullId ?? null;
       if (!existing.hullName && shipLike?.hullName) existing.hullName = shipLike.hullName;
       if (existing.raceId == null) existing.raceId = shipLike?.raceId ?? null;
-      if (existing.ownerId == null) existing.ownerId = ownerId;
-      if (!existing.ownerName && ownerName) existing.ownerName = ownerName;
 
-      if (existing.truthOwnership) {
-        if (existing.truthOwnership.ownerIdAtStart == null) {
-          existing.truthOwnership.ownerIdAtStart = ownerId;
-          existing.truthOwnership.ownerNameAtStart = ownerName;
-        }
-        if (existing.truthOwnership.ownerIdAtEnd == null) {
-          existing.truthOwnership.ownerIdAtEnd = ownerId;
-          existing.truthOwnership.ownerNameAtEnd = ownerName;
-        }
-        existing.truthOwnership.ownerChangedDuringEvent =
-          (existing.truthOwnership.ownerIdAtStart ?? null) !==
-          (existing.truthOwnership.ownerIdAtEnd ?? null);
+      if (sourceTag === 'location-prev' && existing.truthOwnership) {
+        existing.truthOwnership.ownerIdAtStart = ownerId ?? existing.truthOwnership.ownerIdAtStart;
+        existing.truthOwnership.ownerNameAtStart = ownerName || existing.truthOwnership.ownerNameAtStart;
+      }
+
+      if (sourceTag === 'location-now' && existing.truthOwnership) {
+        existing.truthOwnership.ownerIdAtEnd = ownerId ?? existing.truthOwnership.ownerIdAtEnd;
+        existing.truthOwnership.ownerNameAtEnd = ownerName || existing.truthOwnership.ownerNameAtEnd;
       }
 
       if (existing.stats?.mass == null) existing.stats.mass = shipLike?.mass ?? null;
@@ -194,9 +253,10 @@
       hullId: shipLike?.hullId ?? null,
       hullName: shipLike?.hullName || '',
       raceId: shipLike?.raceId ?? null,
-      ownerId,
-      ownerName,
+      ownerId: null,
+      ownerName: '',
       truthOwnership: truthOwnershipBlock(ownerId, ownerName, ownerId, ownerName),
+      truthIdentity: truthIdentityBlock(),
       sourceTags: sourceTag ? [sourceTag] : [],
       truthState: {
         presentAtStart: false,
@@ -232,7 +292,7 @@
     });
   }
 
-  function ensurePlanetEntity(entityMap, prevCtx, nowCtx) {
+ function ensurePlanetEntity(entityMap, prevCtx, nowCtx, inferredStartOwnerId = null, inferredStartOwnerName = '') {
     const prevPlanet = prevCtx?.planet || null;
     const nowPlanet = nowCtx?.planet || null;
     const planet = prevPlanet || nowPlanet || null;
@@ -241,19 +301,36 @@
 
     const entityId = `planet:${planet.id}`;
 
-    const ownerIdAtStart = prevPlanet?.ownerId ?? nowPlanet?.ownerId ?? null;
-    const ownerNameAtStart = prevPlanet?.ownerName || nowPlanet?.ownerName || '';
-    const ownerIdAtEnd = nowPlanet?.ownerId ?? prevPlanet?.ownerId ?? null;
-    const ownerNameAtEnd = nowPlanet?.ownerName || prevPlanet?.ownerName || '';
+    const ownerIdAtStart = preferOwnerId(
+      inferredStartOwnerId,
+      prevPlanet?.ownerId,
+      nowPlanet?.ownerId
+    );
+    const ownerNameAtStart =
+      ownerIdAtStart === firstFiniteNumber(inferredStartOwnerId)
+        ? (inferredStartOwnerName || ownerNameForId(ownerIdAtStart))
+        : ownerNameForId(ownerIdAtStart, prevPlanet?.ownerName || nowPlanet?.ownerName || '');
+
+    const ownerIdAtEnd = preferOwnerId(
+      nowPlanet?.ownerId,
+      prevPlanet?.ownerId
+    );
+    const ownerNameAtEnd = ownerNameForId(ownerIdAtEnd, nowPlanet?.ownerName || prevPlanet?.ownerName || '');
+
+    const finalState =
+      ownerIdAtStart != null &&
+      ownerIdAtEnd != null &&
+      ownerIdAtStart !== ownerIdAtEnd
+        ? 'occupied'
+        : 'stable';
 
     if (entityMap.has(entityId)) {
       const existing = entityMap.get(entityId);
       if (prevPlanet) pushSourceTag(existing, 'location-prev');
       if (nowPlanet) pushSourceTag(existing, 'location-now');
+      if (inferredStartOwnerId != null) pushSourceTag(existing, 'inferred-start-owner');
 
       if (!existing.name && planet.name) existing.name = planet.name;
-      if (existing.ownerId == null) existing.ownerId = ownerIdAtEnd;
-      if (!existing.ownerName && ownerNameAtEnd) existing.ownerName = ownerNameAtEnd;
 
       existing.truthOwnership = truthOwnershipBlock(
         ownerIdAtStart,
@@ -261,6 +338,10 @@
         ownerIdAtEnd,
         ownerNameAtEnd
       );
+
+      existing.ownerId = ownerIdAtEnd;
+      existing.ownerName = ownerNameAtEnd;
+      existing.truthState.finalState = finalState;
 
       if (existing.priorPosition?.x == null) existing.priorPosition.x = planet.x ?? null;
       if (existing.priorPosition?.y == null) existing.priorPosition.y = planet.y ?? null;
@@ -271,6 +352,7 @@
     const sourceTags = [];
     if (prevPlanet) sourceTags.push('location-prev');
     if (nowPlanet) sourceTags.push('location-now');
+    if (inferredStartOwnerId != null) sourceTags.push('inferred-start-owner');
 
     entityMap.set(entityId, {
       id: entityId,
@@ -293,7 +375,7 @@
         presentAtStart: true,
         survivedLocationEvent: true,
         destroyedInCombatId: null,
-        finalState: 'survived',
+        finalState,
       },
       viewerState: {
         knownLastTurnAtLocation: false,
@@ -323,14 +405,14 @@
     });
   }
 
-  function ensureStarbaseEntity(entityMap, prevCtx, nowCtx, starbaseImpliedByCombat) {
+  function ensureStarbaseEntity(entityMap, prevCtx, nowCtx, starbaseImpliedByCombat, inferredStartOwnerId = null, inferredStartOwnerName = '') {
     const prevPlanet = prevCtx?.planet || null;
     const nowPlanet = nowCtx?.planet || null;
     const planet = prevPlanet || nowPlanet || null;
 
     if (!planet?.id) return;
 
-    const existedBefore = !!prevCtx?.starbasePresent || !!starbaseImpliedByCombat;
+    const existedBefore = !!prevCtx?.starbasePresent || !!starbaseImpliedByCombat || inferredStartOwnerId != null;
     const existsNow = !!nowCtx?.starbasePresent;
     const shouldExist = existedBefore || existsNow || !!starbaseImpliedByCombat;
 
@@ -338,16 +420,28 @@
 
     const entityId = `starbase:${planet.id}`;
 
-    const ownerIdAtStart = prevPlanet?.ownerId ?? nowPlanet?.ownerId ?? null;
-    const ownerNameAtStart = prevPlanet?.ownerName || nowPlanet?.ownerName || '';
-    const ownerIdAtEnd = nowPlanet?.ownerId ?? prevPlanet?.ownerId ?? null;
-    const ownerNameAtEnd = nowPlanet?.ownerName || prevPlanet?.ownerName || '';
+    const ownerIdAtStart = preferOwnerId(
+      inferredStartOwnerId,
+      prevPlanet?.ownerId,
+      nowPlanet?.ownerId
+    );
+    const ownerNameAtStart =
+      ownerIdAtStart === firstFiniteNumber(inferredStartOwnerId)
+        ? (inferredStartOwnerName || ownerNameForId(ownerIdAtStart))
+        : ownerNameForId(ownerIdAtStart, prevPlanet?.ownerName || nowPlanet?.ownerName || '');
+
+    const ownerIdAtEnd = preferOwnerId(
+      nowPlanet?.ownerId,
+      prevPlanet?.ownerId
+    );
+    const ownerNameAtEnd = ownerNameForId(ownerIdAtEnd, nowPlanet?.ownerName || prevPlanet?.ownerName || '');
 
     if (entityMap.has(entityId)) {
       const existing = entityMap.get(entityId);
       if (prevCtx?.starbasePresent) pushSourceTag(existing, 'location-prev');
       if (nowCtx?.starbasePresent) pushSourceTag(existing, 'location-now');
       if (starbaseImpliedByCombat) pushSourceTag(existing, 'combat-implied');
+      if (inferredStartOwnerId != null) pushSourceTag(existing, 'inferred-start-owner');
 
       existing.truthOwnership = truthOwnershipBlock(
         ownerIdAtStart,
@@ -377,6 +471,7 @@
     if (prevCtx?.starbasePresent) sourceTags.push('location-prev');
     if (nowCtx?.starbasePresent) sourceTags.push('location-now');
     if (starbaseImpliedByCombat) sourceTags.push('combat-implied');
+    if (inferredStartOwnerId != null) sourceTags.push('inferred-start-owner');
 
     entityMap.set(entityId, {
       id: entityId,
@@ -427,6 +522,107 @@
         knownToViewer: false,
       },
     });
+  }
+
+  async function reconcileShipEntities(led, options = {}) {
+    for (const entity of led.entities) {
+      if (entity.type !== 'ship' || entity.shipId == null) continue;
+
+      entity.truthIdentity = entity.truthIdentity || truthIdentityBlock();
+
+      const tags = entity.sourceTags || [];
+      const currentShip = api.getShipSnapshotById(entity.shipId);
+      const previousShip = await api.getPreviousTurnShipSnapshot(entity.shipId, {
+        ...options,
+        turnNumber: led.turnNumber,
+      });
+
+      const baselineIdentity = {
+        ownerId: entity.truthOwnership?.ownerIdAtStart ?? null,
+        hullId: entity.hullId ?? null,
+      };
+
+      if (tags.includes('location-now')) {
+        entity.truthIdentity.currentIdRelation = 'same-ship';
+      } else if (currentShip) {
+        entity.truthIdentity.currentIdRelation = api.classifyShipIdentityRelation(
+          baselineIdentity,
+          currentShip
+        );
+      } else {
+        entity.truthIdentity.currentIdRelation = 'absent';
+      }
+
+      if (tags.includes('location-prev')) {
+        entity.truthIdentity.previousTurnIdRelation = 'same-ship';
+      } else if (previousShip) {
+        entity.truthIdentity.previousTurnIdRelation = api.classifyShipIdentityRelation(
+          baselineIdentity,
+          previousShip
+        );
+      } else {
+        entity.truthIdentity.previousTurnIdRelation = 'absent';
+      }
+
+      if (entity.truthIdentity.currentIdRelation === 'id-reused-later') {
+        entity.truthIdentity.idReusedLater = true;
+      }
+
+      if (entity.truthIdentity.previousTurnIdRelation === 'id-reused-later') {
+        entity.truthIdentity.newlyBuiltThisTurn = true;
+      }
+
+      const participated = tags.includes('combat-participant');
+      const onCurrentLocation = tags.includes('location-now');
+
+      if (participated) {
+        if (onCurrentLocation || entity.truthIdentity.currentIdRelation === 'same-ship') {
+          entity.truthState.survivedLocationEvent = true;
+          entity.truthState.finalState = 'survived';
+        } else {
+          entity.truthState.survivedLocationEvent = false;
+          entity.truthState.finalState = 'destroyed';
+        }
+
+        if (entity.truthState.finalState === 'destroyed') {
+          entity.ownerId = null;
+          entity.ownerName = '';
+          entity.truthOwnership.ownerIdAtEnd = entity.truthOwnership.ownerIdAtStart;
+          entity.truthOwnership.ownerNameAtEnd = entity.truthOwnership.ownerNameAtStart;
+          entity.truthOwnership.ownerChangedDuringEvent = false;
+        } else {
+          entity.ownerId = entity.truthOwnership?.ownerIdAtEnd ?? entity.truthOwnership?.ownerIdAtStart ?? null;
+          entity.ownerName = entity.truthOwnership?.ownerNameAtEnd || entity.truthOwnership?.ownerNameAtStart || '';
+        }
+      }
+
+      if (!participated && tags.includes('location-now') && entity.truthIdentity.previousTurnIdRelation === 'id-reused-later') {
+        entity.truthIdentity.newlyBuiltThisTurn = true;
+      }
+    }
+  }
+
+  function inferStartOwnerFromBuiltShips(led) {
+    const candidates = led.entities
+      .filter((e) => e.type === 'ship')
+      .filter((e) => (e.sourceTags || []).includes('location-now'))
+      .filter((e) => e.truthIdentity?.newlyBuiltThisTurn)
+      .map((e) => ({
+        ownerId: e.truthOwnership?.ownerIdAtStart ?? e.truthOwnership?.ownerIdAtEnd ?? e.ownerId ?? null,
+        ownerName: e.truthOwnership?.ownerNameAtStart || e.truthOwnership?.ownerNameAtEnd || e.ownerName || '',
+      }))
+      .filter((x) => x.ownerId != null);
+
+    const uniqueOwnerIds = Array.from(new Set(candidates.map((x) => x.ownerId)));
+    if (uniqueOwnerIds.length !== 1) {
+      return { ownerId: null, ownerName: '' };
+    }
+
+    const match = candidates.find((x) => x.ownerId === uniqueOwnerIds[0]);
+    return {
+      ownerId: match?.ownerId ?? null,
+      ownerName: match?.ownerName || '',
+    };
   }
 
   api.buildLocationBundle = async function buildLocationBundle(turnData, locationKey, options = {}) {
@@ -487,9 +683,10 @@
             hullId: p.hullId ?? null,
             hullName: p.hullName || '',
             raceId: p.raceId ?? null,
-            ownerId,
-            ownerName,
+            ownerId: null,
+            ownerName: '',
             truthOwnership: truthOwnershipBlock(ownerId, ownerName, ownerId, ownerName),
+            truthIdentity: truthIdentityBlock(),
             sourceTags: ['combat-participant'],
             truthState: {
               presentAtStart: true,
@@ -549,13 +746,33 @@
       ensureShipEntity(entityMap, ship, led, 'location-now');
     });
 
-    ensurePlanetEntity(entityMap, led.locationContextPreviousTurn, led.locationContextNow);
+    led.entities = Array.from(entityMap.values());
+
+    await reconcileShipEntities(led, options);
+
+    const inferredStartOwner = inferStartOwnerFromBuiltShips(led);
+
+    entityMap.clear();
+    led.entities.forEach((e) => entityMap.set(e.id, e));
+
+    ensurePlanetEntity(
+      entityMap,
+      led.locationContextPreviousTurn,
+      led.locationContextNow,
+      inferredStartOwner.ownerId,
+      inferredStartOwner.ownerName
+    );
+
     ensureStarbaseEntity(
       entityMap,
       led.locationContextPreviousTurn,
       led.locationContextNow,
-      locationHasStarbaseCombat(rawCombats)
+      locationHasStarbaseCombat(rawCombats),
+      inferredStartOwner.ownerId,
+      inferredStartOwner.ownerName
     );
+
+    led.entities = Array.from(entityMap.values());
 
     console.log('[Bundle Debug]', {
       locationKey,
@@ -567,11 +784,12 @@
       finalEntityIds: Array.from(entityMap.keys()),
     });
 
-    led.entities = Array.from(entityMap.values());
     led.truth.entitiesPresentAtLocation = led.entities.map((e) => e.id);
     led.truth.totalShipsInvolved = led.entities.filter((e) => e.type === 'ship').length;
     led.truth.totalRacesInvolved = new Set(
-      led.entities.map((e) => e.raceId).filter((v) => v != null)
+      led.entities
+        .map((e) => e.truthOwnership?.ownerIdAtStart ?? e.ownerId)
+        .filter((v) => v != null)
     ).size;
 
     return led;
