@@ -15,10 +15,22 @@
     lines.push(`Entities: ${led.entities?.length || 0}`);
     lines.push('');
 
+    lines.push('Location Context:');
+    lines.push(`- Prev ships: ${(led.locationContextPreviousTurn?.shipIdsPresent || []).join(', ') || '(none)'}`);
+    lines.push(`- Now ships: ${(led.locationContextNow?.shipIdsPresent || []).join(', ') || '(none)'}`);
+    lines.push(`- Stayed: ${(led.locationContextDelta?.shipsStayed || []).join(', ') || '(none)'}`);
+    lines.push(`- Departed: ${(led.locationContextDelta?.shipsDeparted || []).join(', ') || '(none)'}`);
+    lines.push(`- Arrived: ${(led.locationContextDelta?.shipsArrived || []).join(', ') || '(none)'}`);
+    lines.push(
+      `- Starbase prev/now: ${led.locationContextDelta?.previousStarbasePresent ? 'yes' : 'no'} / ${led.locationContextDelta?.currentStarbasePresent ? 'yes' : 'no'}`
+    );
+    lines.push('');
+
     lines.push('Entities:');
     (led.entities || []).forEach((e) => {
+      const own = e.truthOwnership || {};
       lines.push(
-        `- ${e.id} | owner=${e.ownerId ?? '?'} | race=${e.raceId ?? '?'} | entry=${e.presentation?.entryMode || '(unset)'}`
+        `- ${e.id} | type=${e.type} | owner=${e.ownerId ?? '?'} | startOwner=${own.ownerIdAtStart ?? '?'} | endOwner=${own.ownerIdAtEnd ?? '?'} | ownerChanged=${own.ownerChangedDuringEvent ? 'yes' : 'no'} | race=${e.raceId ?? '?'} | tags=${(e.sourceTags || []).join(',') || '(none)'} | entry=${e.presentation?.entryMode || '(unset)'}`
       );
     });
 
